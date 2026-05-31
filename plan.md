@@ -6,7 +6,7 @@
 - Branch: `feat/clipboard-node`
 - Base: `master` at `0992111 chore: 初始化剪贴板节点仓库`
 - Worktree: `D:/project/MyFlowHub3/worktrees/feat-clipboard-node/MyFlowHub-ClipboardNode`
-- Current Stage: `3.1 - Planning`
+- Current Stage: `3.2 - Implementation`
 
 ## Stage Records
 
@@ -222,8 +222,65 @@ The repository exists with documentation baselines only. No runtime or host code
 
 #### Issue List
 
-- Plan is ready for user confirmation.
+- User confirmed continuation; Stage 3.2 may proceed.
 
-阻塞：是
-禁止进入 3.2
-禁止派发子Agent
+阻塞：否
+进入 3.2
+
+### Stage 3.2 - Implementation
+
+#### Parallelism Assessment
+
+- `CLIP-1` and `CLIP-2` are tightly coupled because runtime orchestration depends on the event model.
+- `CLIP-3` depends on the clipboard adapter interface from `CLIP-1`.
+- `CLIP-4` can be implemented independently after the runtime config type exists.
+- This implementation remains single-agent because the repository is small, the write sets overlap through shared config/runtime types, and host policy has not exposed a dedicated sub-agent dispatch tool in this turn.
+
+#### File-level Change Plan
+
+- `go.mod`: define the standalone Go module with the local MyFlowHub naming convention.
+- `core/clipboard`: define narrow clipboard adapter contracts and text event metadata.
+- `core/runtime`: implement config defaults, payload validation, event construction, TopicBus client interface, dedupe windows, local publish, remote apply, and status reporting.
+- `core/configstore`: implement JSON persistence for non-sensitive config only.
+- `windows`: implement a Windows clipboard adapter and polling watcher behind the core adapter interface.
+- `cmd/clipboardnode`: add a minimal Windows-first headless host skeleton with explicit disabled-by-default behavior.
+- `scripts`: add a narrow validation helper.
+- `docs/change`: prepare Stage 4 archive after tests pass.
+- `.gitignore`: ignore `.ace-tool/` produced by local indexing attempts (`CLIP-5` repository hygiene).
+
+#### Implementation Result
+
+- `CLIP-1`: completed. Added versioned `clipboard.text.v1` payload, validation, hash helpers, JSON parsing, and event tests.
+- `CLIP-2`: completed. Added runtime orchestration with TopicBus and clipboard interfaces, local publish, remote apply, duplicate drop, local-origin drop, loop suppression, config switching, reconnect resubscribe, and fake integration tests.
+- `CLIP-3`: completed as skeleton. Added Win32 text clipboard adapter, polling watcher, and headless Windows-first host skeleton. Live SDK TopicBus transport is explicitly not wired yet and fails clearly when `enabled=true`.
+- `CLIP-4`: completed. Added JSON config store with disabled defaults and non-sensitive persistence tests.
+- `CLIP-5`: completed. Added validation script, README notes, change archive, and `.ace-tool/` ignore rule.
+
+#### Validation
+
+- `$env:GOWORK='off'; go test ./... -count=1`: passed.
+- `$env:GOWORK='off'; go build -o 'build/clipboardnode.exe' ./cmd/clipboardnode`: passed.
+- `git diff --check`: passed.
+
+#### Stage 3.3 - Code Review
+
+- 需求覆盖：通过。MVP text-only、TopicBus best-effort、默认禁用、大小限制、无正文日志/配置、回环抑制均已覆盖。
+- 架构合理性：通过。`core` 与平台 `windows` 分离，TopicBus 和剪贴板均通过接口隔离。
+- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：通过。文本长度不做额外 byte slice 复制，hash 在本地路径复用一次，去重窗口有界。
+- 可读性与一致性：通过。命名沿用需求/规格中的 event/config/runtime 术语。
+- 可扩展性与配置化：通过。事件版本化，TopicBus/clipboard 接口化，配置默认值集中。
+- 稳定性与安全：通过。启用需要 topic，禁用停止 watcher，错误显式返回，状态不含正文。
+- 测试覆盖情况：通过。覆盖 payload 校验、hash mismatch、oversize、disabled no-op、local publish、remote apply、duplicate、local origin、loop suppression、配置存储、启用/禁用/重订阅。
+- 子Agent治理与审计：通过。未派发子Agent，原因和执行轨迹已记录。
+
+### Stage 4 - Change Archive
+
+使用 `$m-docs` 校验变更归档、requirements/specs 影响和 lessons 需要性。
+
+- Requirements impact: none
+- Specs impact: none
+- Lessons impact: none
+- Related requirements: [docs/requirements/clipboard-sync.md](docs/requirements/clipboard-sync.md)
+- Related specs: [docs/specs/clipboard-sync.md](docs/specs/clipboard-sync.md)
+- Related lessons: none
+- Change archive: [docs/change/2026-05-31_clipboard-node-mvp.md](docs/change/2026-05-31_clipboard-node-mvp.md)
