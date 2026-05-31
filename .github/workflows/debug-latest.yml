@@ -1,0 +1,197 @@
+name: debug-latest
+
+"on":
+  push:
+    branches:
+      - master
+    tags-ignore:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-debug:
+    name: Build Windows debug
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Validate and build Go CLI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:GOWORK = "off"
+
+          New-Item -ItemType Directory -Force -Path "build" | Out-Null
+          go test ./... -count=1
+          go build -o "build/clipboardnode-windows-amd64.exe" ./cmd/clipboardnode
+
+          if (-not (Test-Path -LiteralPath "build/clipboardnode-windows-amd64.exe")) {
+            throw "Go CLI build did not produce build/clipboardnode-windows-amd64.exe"
+          }
+
+      - name: Validate and build Flutter Windows app
+        shell: pwsh
+        working-directory: app
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          flutter --version
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build windows --debug
+
+      - name: Package debug artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $runnerDir = Join-Path $PWD "app/build/windows/x64/runner/Debug"
+          if (-not (Test-Path -LiteralPath $runnerDir)) {
+            throw "Flutter Windows debug output was not found: $runnerDir"
+          }
+
+          $appExe = Get-ChildItem -LiteralPath $runnerDir -Filter "*.exe" -File | Select-Object -First 1
+          if ($null -eq $appExe) {
+            throw "Flutter Windows debug output does not contain an executable: $runnerDir"
+          }
+
+          if (Test-Path -LiteralPath "dist") {
+            Remove-Item -LiteralPath "dist" -Recurse -Force
+          }
+
+          $packageRoot = Join-Path $PWD "dist/myflowhub-clipboardnode-windows-debug"
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          Copy-Item -Path "$runnerDir/*" -Destination $packageRoot -Recurse -Force
+
+          $buildInfo = @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "commit=$env:GITHUB_SHA"
+            "run_id=$env:GITHUB_RUN_ID"
+            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
+            "app_exe=$($appExe.Name)"
+          ) -join "`n"
+          Set-Content -LiteralPath (Join-Path $packageRoot "build-info.txt") -Value $buildInfo -Encoding utf8
+
+          $zipPath = Join-Path $PWD "dist/myflowhub-clipboardnode-windows-debug.zip"
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath $zipPath -Force
+          Copy-Item -LiteralPath "build/clipboardnode-windows-amd64.exe" -Destination "dist/clipboardnode-windows-amd64.exe" -Force
+
+          if (-not (Test-Path -LiteralPath $zipPath)) {
+            throw "Missing packaged Flutter zip: $zipPath"
+          }
+          if (-not (Test-Path -LiteralPath "dist/clipboardnode-windows-amd64.exe")) {
+            throw "Missing packaged Go CLI binary"
+          }
+
+          Get-ChildItem -LiteralPath "dist" -File | ForEach-Object {
+            "- $($_.Name) ($($_.Length) bytes)" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload debug artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: myflowhub-clipboardnode-windows-debug
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/myflowhub-clipboardnode-windows-debug.zip
+            dist/clipboardnode-windows-amd64.exe
+
+  publish-debug-latest:
+    name: Publish debug-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build-windows-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: myflowhub-clipboardnode-debug-latest
+      cancel-in-progress: true
+
+    steps:
+      - name: Download debug artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: myflowhub-clipboardnode-windows-debug
+          path: artifacts
+
+      - name: Publish debug-latest release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repo="${GITHUB_REPOSITORY}"
+          tag="debug-latest"
+          sha="${GITHUB_SHA}"
+          zip_path="artifacts/myflowhub-clipboardnode-windows-debug.zip"
+          cli_path="artifacts/clipboardnode-windows-amd64.exe"
+
+          if [[ ! -f "${zip_path}" ]]; then
+            echo "Missing Flutter Windows debug package: ${zip_path}" >&2
+            find artifacts -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+          if [[ ! -f "${cli_path}" ]]; then
+            echo "Missing Go CLI binary: ${cli_path}" >&2
+            find artifacts -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+
+          if gh api "repos/${repo}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${repo}/git/refs/tags/${tag}" \
+              -f sha="${sha}" \
+              -F force=true \
+              >/dev/null
+          else
+            gh api --method POST "repos/${repo}/git/refs" \
+              -f ref="refs/tags/${tag}" \
+              -f sha="${sha}" \
+              >/dev/null
+          fi
+
+          release_title="Debug (latest)"
+          run_url="${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}"
+          release_notes="$(printf '自动构建的 Debug 版本（master）。\n\ncommit=%s\nrun=%s\n' "${sha}" "${run_url}")"
+
+          if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
+            gh release edit "${tag}" --repo "${repo}" --title "${release_title}" --notes "${release_notes}" --prerelease
+          else
+            gh release create "${tag}" --repo "${repo}" --title "${release_title}" --notes "${release_notes}" --prerelease
+          fi
+
+          gh release upload "${tag}" "${zip_path}" "${cli_path}" --repo "${repo}" --clobber
+
+          release_url="https://github.com/${repo}/releases/tag/${tag}"
+          zip_url="https://github.com/${repo}/releases/download/${tag}/myflowhub-clipboardnode-windows-debug.zip"
+          cli_url="https://github.com/${repo}/releases/download/${tag}/clipboardnode-windows-amd64.exe"
+          {
+            echo "## Debug Assets"
+            echo ""
+            echo "- Release: ${release_url}"
+            echo "- Windows debug app: ${zip_url}"
+            echo "- Go CLI: ${cli_url}"
+            echo "- Commit: \`${sha}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

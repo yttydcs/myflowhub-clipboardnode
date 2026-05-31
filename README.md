@@ -19,6 +19,21 @@ first cross-platform Flutter application shell:
 
 Sync is disabled by default. The first phase is text-only, online-only, and best-effort through TopicBus.
 
+## Debug Preview
+
+The latest automated Windows debug build is published as a prerelease:
+
+```text
+https://github.com/yttydcs/myflowhub-clipboardnode/releases/tag/debug-latest
+```
+
+Each `master` push refreshes the movable `debug-latest` tag and uploads:
+
+- `myflowhub-clipboardnode-windows-debug.zip`: full Flutter Windows debug runner directory.
+- `clipboardnode-windows-amd64.exe`: Go CLI build from `cmd/clipboardnode`.
+
+Manual workflow runs and pull requests still build the same artifacts in GitHub Actions, but only `master` pushes update the prerelease.
+
 ## Scope
 
 - Runs as its own node instead of being embedded in MyFlowHub-Win or Server.
