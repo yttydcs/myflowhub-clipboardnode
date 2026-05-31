@@ -8,6 +8,7 @@ import (
 func TestCommandContractEncodesSetConfig(t *testing.T) {
 	data, err := json.Marshal(Settings{
 		Enabled:          true,
+		ParentEndpoint:   "10.0.0.2:9000",
 		Topic:            "clipboard/shared",
 		DeviceLabel:      "win-laptop",
 		MaxInlineBytes:   65536,
@@ -39,7 +40,10 @@ func TestCommandContractEncodesSetConfig(t *testing.T) {
 	if err := json.Unmarshal(got.Data, &settings); err != nil {
 		t.Fatal(err)
 	}
-	if settings.Topic != "clipboard/shared" || !settings.AutoWatch || settings.AutoApply {
+	if settings.ParentEndpoint != "10.0.0.2:9000" ||
+		settings.Topic != "clipboard/shared" ||
+		!settings.AutoWatch ||
+		settings.AutoApply {
 		t.Fatalf("unexpected settings: %+v", settings)
 	}
 }
@@ -48,6 +52,7 @@ func TestStatusEventOmitsClipboardBody(t *testing.T) {
 	data, err := json.Marshal(Status{
 		Connected:      true,
 		LoggedIn:       true,
+		ParentEndpoint: "10.0.0.2:9000",
 		Enabled:        true,
 		Topic:          "clipboard/shared",
 		DeviceLabel:    "desktop",

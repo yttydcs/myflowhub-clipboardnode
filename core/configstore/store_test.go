@@ -24,6 +24,9 @@ func TestStoreLoadMissingReturnsSafeDefaults(t *testing.T) {
 	if cfg.MaxInlineBytes != coreruntime.DefaultMaxInlineBytes {
 		t.Fatalf("max_inline_bytes = %d", cfg.MaxInlineBytes)
 	}
+	if cfg.ParentEndpoint != coreruntime.DefaultParentEndpoint {
+		t.Fatalf("parent_endpoint = %q", cfg.ParentEndpoint)
+	}
 }
 
 func TestStoreSaveLoadDoesNotPersistClipboardText(t *testing.T) {
@@ -34,6 +37,7 @@ func TestStoreSaveLoadDoesNotPersistClipboardText(t *testing.T) {
 	}
 	cfg := coreruntime.Config{
 		Enabled:        true,
+		ParentEndpoint: " 10.0.0.2:9000 ",
 		Topic:          " clipboard/dev ",
 		MaxInlineBytes: 1024,
 		DeviceLabel:    " win-laptop ",
@@ -52,7 +56,10 @@ func TestStoreSaveLoadDoesNotPersistClipboardText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if !loaded.Enabled || loaded.Topic != "clipboard/dev" || loaded.DeviceLabel != "win-laptop" {
+	if !loaded.Enabled ||
+		loaded.ParentEndpoint != "10.0.0.2:9000" ||
+		loaded.Topic != "clipboard/dev" ||
+		loaded.DeviceLabel != "win-laptop" {
 		t.Fatalf("loaded config = %+v", loaded)
 	}
 	if loaded.MaxInlineBytes != 1024 {

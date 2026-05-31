@@ -6,7 +6,7 @@
 - Branch: `feat/clipboard-node`
 - Base: `master` at `0992111 chore: 初始化剪贴板节点仓库`
 - Worktree: `D:/project/MyFlowHub3/worktrees/feat-clipboard-node/MyFlowHub-ClipboardNode`
-- Current Stage: `3.2 - Implementation`
+- Current Stage: `4 - Change Archive`
 
 ## Stage Records
 
@@ -266,6 +266,16 @@ This iteration upgrades the target to a complete cross-platform application and 
 - Stable technical truth: `docs/specs/clipboard-sync.md`
 - Active workflow control: root `plan.md`
 - Completed workflow archive: future `docs/change/YYYY-MM-DD_clipboard-cross-platform-app-plan.md`
+- Current incremental issue:
+  - Parent Hub / endpoint was fixed in the preview state and not editable from UI.
+  - Requirements impact: clarify
+  - Specs impact: clarify
+  - Lessons impact: none
+- Current incremental issue:
+  - Register/login and login-state cleanup should run in the background instead of becoming separate primary UI workflows.
+  - Requirements impact: clarify
+  - Specs impact: clarify
+  - Lessons impact: none
 
 #### Related Requirements / Specs / Lessons
 
@@ -285,6 +295,8 @@ This iteration upgrades the target to a complete cross-platform application and 
 - `APP-5`: Implement initial UI screens: connection/login, sync status, channel/settings, manual send, recent activity.
 - `APP-6`: Implement platform capability map and desktop/mobile clipboard policy split.
 - `APP-7`: Add validation, widget tests, bridge tests, docs/change archive, and manual preview steps.
+- `APP-8`: Add configurable parent Hub / endpoint support to config, bridge, and UI.
+- `APP-9`: Move registration/login and login-state cleanup behind the connect/disconnect lifecycle.
 
 #### Task Details
 
@@ -393,6 +405,39 @@ This iteration upgrades the target to a complete cross-platform application and 
 - Acceptance: validation commands and residual risks are recorded; no unrelated repos changed.
 - Test Points: Go tests, Flutter tests/build if available, `git diff --check`, `git status`.
 - Rollback: revert closeout docs/scripts.
+
+##### APP-8 - Parent Hub / Endpoint Configuration
+
+- Owner: main agent
+- Status: completed in this iteration
+- Worktree: same
+- Plan Path: `plan.md`
+- Goal: allow users to edit the parent Hub / connection endpoint from the app UI and carry it through config and bridge contracts.
+- Files / Modules: `docs/requirements/`, `docs/specs/`, `core/runtime`, `bridge`, `app/`.
+- Write Set: requirements/specs/plan docs, runtime config, bridge DTOs, Flutter DTOs, preview bridge, settings UI, tests.
+- Acceptance: settings page exposes parent endpoint; saving trims and validates it; preview connect status reflects the selected endpoint; Go and Flutter tests cover the field.
+- Test Points: `GOWORK=off go test ./... -count=1`, `flutter analyze`, `flutter test`, `flutter build windows`, `git diff --check`.
+- Rollback: revert `parent_endpoint` doc, DTO, config, UI, and test additions.
+- Result:
+  - Added `parent_endpoint` to Go runtime config, configstore coverage, Go bridge contracts, Flutter settings DTOs, and settings UI.
+  - Preview connect uses the saved parent endpoint and settings save trims surrounding whitespace.
+
+##### APP-9 - Background Auth Lifecycle
+
+- Owner: main agent
+- Status: completed for the preview bridge lifecycle
+- Worktree: same
+- Plan Path: `plan.md`
+- Goal: keep register/login and login-state cleanup out of the primary UI and model them as background lifecycle work.
+- Files / Modules: `docs/requirements/`, `docs/specs/`, `app/lib/core/bridge`, `app/lib/features/shell`, `app/test`.
+- Write Set: requirements/specs/plan docs, Flutter bridge state, preview bridge, shell labels, widget tests.
+- Acceptance: connect performs background auth stages; disconnect and app disposal clear login state; UI shows status but does not expose separate register/login controls.
+- Test Points: `flutter analyze`, `flutter test`, `flutter build windows`, `git diff --check`; Go tests if shared bridge/config contracts change.
+- Rollback: revert auth lifecycle doc/UI/bridge/test changes.
+- Result:
+  - Preview connect reports background transport, register, login, and authenticated stages through UI-safe status only.
+  - Disconnect and app disposal clear preview login state and node identity without separate primary UI actions.
+  - Live Hub registration/login cleanup remains part of `APP-4` transport wiring.
 
 #### Dependencies
 

@@ -43,7 +43,7 @@ func run() error {
 		return fmt.Errorf("clipboard sync is enabled, but the TopicBus SDK transport is not wired into this host skeleton yet")
 	}
 	fmt.Printf("ClipboardNode config loaded from %s\n", *configFile)
-	fmt.Printf("sync disabled; topic=%q max_inline_bytes=%d\n", cfg.Topic, cfg.MaxInlineBytes)
+	fmt.Printf("sync disabled; parent_endpoint=%q topic=%q max_inline_bytes=%d\n", cfg.ParentEndpoint, cfg.Topic, cfg.MaxInlineBytes)
 	return nil
 }
 

@@ -110,7 +110,7 @@ class _SectionContent extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (section) {
       case ClipboardSection.overview:
-        return _OverviewSection(controller: controller, state: state);
+        return _OverviewSection(state: state);
       case ClipboardSection.send:
         return _SendSection(controller: controller, state: state);
       case ClipboardSection.settings:
@@ -229,9 +229,21 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           _StatusPill(
-            icon: state.connected ? Icons.hub : Icons.hub_outlined,
-            label: state.connected ? '已连接' : '未连接',
-            tone: state.connected ? _Tone.success : _Tone.muted,
+            icon: state.loggedIn
+                ? Icons.verified_user_outlined
+                : state.connected
+                ? Icons.hub
+                : Icons.hub_outlined,
+            label: state.loggedIn
+                ? '已认证'
+                : state.connected
+                ? state.authStage
+                : '未连接',
+            tone: state.loggedIn
+                ? _Tone.success
+                : state.connected
+                ? _Tone.warning
+                : _Tone.muted,
           ),
           const SizedBox(width: 8),
           _StatusPill(
@@ -266,9 +278,8 @@ class _TopBar extends StatelessWidget {
 }
 
 class _OverviewSection extends StatelessWidget {
-  const _OverviewSection({required this.controller, required this.state});
+  const _OverviewSection({required this.state});
 
-  final ClipboardController controller;
   final ClipboardEngineState state;
 
   @override
@@ -289,7 +300,7 @@ class _OverviewSection extends StatelessWidget {
             _MetricItem(
               icon: Icons.badge_outlined,
               label: 'Node',
-              value: state.nodeId?.toString() ?? '待登录',
+              value: state.nodeId?.toString() ?? state.authStage,
               tone: state.loggedIn ? _Tone.success : _Tone.muted,
             ),
             _MetricItem(
@@ -310,68 +321,10 @@ class _OverviewSection extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _ResponsiveTwoColumn(
-          first: _ConnectionPanel(controller: controller, state: state),
-          second: _PolicyPanel(state: state),
-        ),
-        const SizedBox(height: 18),
-        _ResponsiveTwoColumn(
-          first: _SecurityPanel(state: state),
+          first: _PolicyPanel(state: state),
           second: _LastActivityPanel(state: state),
         ),
       ],
-    );
-  }
-}
-
-class _ConnectionPanel extends StatelessWidget {
-  const _ConnectionPanel({required this.controller, required this.state});
-
-  final ClipboardController controller;
-  final ClipboardEngineState state;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Panel(
-      title: '连接',
-      icon: Icons.route_outlined,
-      trailing: _StatusPill(
-        icon: state.previewMode
-            ? Icons.science_outlined
-            : Icons.verified_outlined,
-        label: state.previewMode ? '预览桥接' : '实时桥接',
-        tone: state.previewMode ? _Tone.warning : _Tone.success,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _KeyValue(label: 'Endpoint', value: state.hubEndpoint),
-          _KeyValue(
-            label: 'Identity',
-            value: state.nodeId?.toString() ?? 'not logged in',
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilledButton.icon(
-                onPressed: state.connected || state.busy
-                    ? null
-                    : controller.connect,
-                icon: const Icon(Icons.link, size: 18),
-                label: const Text('连接并登录'),
-              ),
-              OutlinedButton.icon(
-                onPressed: state.connected && !state.busy
-                    ? controller.disconnect
-                    : null,
-                icon: const Icon(Icons.link_off, size: 18),
-                label: const Text('断开'),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
@@ -416,36 +369,6 @@ class _PolicyPanel extends StatelessWidget {
           const SizedBox(height: 10),
           for (final note in capability.notes)
             _CompactNote(icon: Icons.info_outline, text: note),
-        ],
-      ),
-    );
-  }
-}
-
-class _SecurityPanel extends StatelessWidget {
-  const _SecurityPanel({required this.state});
-
-  final ClipboardEngineState state;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Panel(
-      title: '安全边界',
-      icon: Icons.shield_outlined,
-      child: Column(
-        children: [
-          const _CompactNote(icon: Icons.lock_outline, text: '私有 MyFlowHub 拓扑'),
-          const _CompactNote(icon: Icons.badge_outlined, text: '使用已认证节点身份'),
-          const _CompactNote(
-            icon: Icons.visibility_off_outlined,
-            text: '状态流不携带剪贴板正文',
-          ),
-          _CompactNote(
-            icon: Icons.inventory_2_outlined,
-            text: state.settings.historyRetention == HistoryRetention.metadata
-                ? '近期列表仅保留元数据'
-                : '近期列表不保留历史',
-          ),
         ],
       ),
     );
@@ -568,6 +491,7 @@ class _SettingsSection extends StatefulWidget {
 }
 
 class _SettingsSectionState extends State<_SettingsSection> {
+  late final TextEditingController _parentEndpoint;
   late final TextEditingController _topic;
   late final TextEditingController _deviceLabel;
   late final TextEditingController _maxInlineBytes;
@@ -576,6 +500,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
   void initState() {
     super.initState();
     final settings = widget.state.settings;
+    _parentEndpoint = TextEditingController(text: settings.parentEndpoint);
     _topic = TextEditingController(text: settings.topic);
     _deviceLabel = TextEditingController(text: settings.deviceLabel);
     _maxInlineBytes = TextEditingController(
@@ -587,6 +512,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
   void didUpdateWidget(covariant _SettingsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.state.settings != widget.state.settings) {
+      _syncController(_parentEndpoint, widget.state.settings.parentEndpoint);
       _syncController(_topic, widget.state.settings.topic);
       _syncController(_deviceLabel, widget.state.settings.deviceLabel);
       _syncController(
@@ -598,6 +524,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
 
   @override
   void dispose() {
+    _parentEndpoint.dispose();
     _topic.dispose();
     _deviceLabel.dispose();
     _maxInlineBytes.dispose();
@@ -626,6 +553,14 @@ class _SettingsSectionState extends State<_SettingsSection> {
               const SizedBox(height: 14),
               _FormGrid(
                 children: [
+                  TextField(
+                    controller: _parentEndpoint,
+                    decoration: const InputDecoration(
+                      labelText: '父节点',
+                      prefixIcon: Icon(Icons.hub_outlined),
+                      hintText: '127.0.0.1:9000',
+                    ),
+                  ),
                   TextField(
                     controller: _topic,
                     decoration: const InputDecoration(
@@ -739,6 +674,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
     }
     await _update(
       widget.state.settings.copyWith(
+        parentEndpoint: _parentEndpoint.text,
         topic: _topic.text,
         deviceLabel: _deviceLabel.text.trim().isEmpty
             ? 'local-device'
@@ -1108,36 +1044,6 @@ class _CompactNote extends StatelessWidget {
           Icon(icon, size: 18, color: AppColors.inkMuted),
           const SizedBox(width: 10),
           Expanded(child: Text(text, overflow: TextOverflow.ellipsis)),
-        ],
-      ),
-    );
-  }
-}
-
-class _KeyValue extends StatelessWidget {
-  const _KeyValue({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 88,
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
         ],
       ),
     );

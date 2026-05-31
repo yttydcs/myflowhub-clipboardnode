@@ -6,7 +6,7 @@ ClipboardNode is a standalone cross-platform MyFlowHub clipboard application. It
 
 Small text synchronization uses TopicBus as an application event channel:
 
-1. The node connects and logs in through the existing MyFlowHub client runtime.
+1. The node connects to the configured parent Hub / endpoint, then performs registration/login in the background through the existing MyFlowHub auth flow.
 2. When enabled, it subscribes to a configured clipboard topic/channel.
 3. A platform clipboard watcher reports local text changes to the shared runtime.
 4. The shared runtime validates, hashes, deduplicates, and publishes a `clipboard.text.v1` event.
@@ -57,7 +57,8 @@ The default security model is the private MyFlowHub topology plus authenticated 
 
 ### Cross-platform app UI
 
-- Provide connection/login controls.
+- Provide a single connect/disconnect control; registration, login, and login-state cleanup run in the background.
+- Provide parent Hub / endpoint settings before connection.
 - Provide channel selection and sync policy settings.
 - Provide desktop/mobile-appropriate send and receive controls.
 - Provide recent transfer status without forced body exposure.
@@ -104,9 +105,19 @@ The default security model is the private MyFlowHub topology plus authenticated 
 
 1. Load config.
 2. Initialize engine with platform clipboard adapter and TopicBus client.
-3. Connect and login.
-4. If `enabled=true`, subscribe to `topic`.
-5. Start platform clipboard watcher.
+3. Connect to the configured `parent_endpoint`.
+4. Register or rebind the local device identity if needed.
+5. Login with the local device identity.
+6. If `enabled=true`, subscribe to `topic`.
+7. Start platform clipboard watcher.
+
+### Disconnect / Shutdown
+
+1. Stop platform clipboard watchers.
+2. Unsubscribe best-effort from the active topic.
+3. Clear in-memory login state and node identity.
+4. Close the transport/session.
+5. Preserve non-sensitive configuration such as parent endpoint, topic, device label, size limits, and local policy.
 
 ### Local Clipboard To TopicBus
 
@@ -180,6 +191,7 @@ type ClipboardTextEventV1 struct {
 ```go
 type Config struct {
     Enabled        bool   `json:"enabled"`
+    ParentEndpoint string `json:"parent_endpoint"`
     Topic          string `json:"topic"`
     MaxInlineBytes int    `json:"max_inline_bytes"`
     DeviceLabel    string `json:"device_label,omitempty"`
@@ -189,6 +201,7 @@ type Config struct {
 }
 ```
 
+Default `ParentEndpoint` should be `127.0.0.1:9000`.
 Default `MaxInlineBytes` should be `65536`.
 Default `Enabled`, `AutoWatch`, `AutoApply`, and persistent body retention should be conservative and off unless the user enables them explicitly.
 
@@ -198,6 +211,7 @@ Default `Enabled`, `AutoWatch`, `AutoApply`, and persistent body retention shoul
 type Status struct {
     Connected bool
     LoggedIn bool
+    ParentEndpoint string
     Enabled bool
     Topic string
     DeviceLabel string
@@ -238,6 +252,8 @@ The manifest is a ClipboardNode application payload. It must not require a Topic
 ## Error Handling And Safety
 
 - Empty topic: syncing cannot start; report invalid config.
+- Empty parent endpoint: connect/login cannot start; report invalid config.
+- Register/login failure: keep transport cleanup best-effort, report UI-safe auth status, and do not subscribe or publish.
 - Not connected or not logged in: do not publish or subscribe; report waiting state.
 - TopicBus subscribe failure: keep disabled subscription state and retry on reconnect or explicit enable.
 - Invalid remote JSON: drop and record validation error without retry.

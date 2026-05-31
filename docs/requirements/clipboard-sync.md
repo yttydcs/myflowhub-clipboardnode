@@ -21,7 +21,10 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 - Treat TopicBus payload as ClipboardNode application JSON, not as a protocol extension.
 - Use existing Stream or File capabilities for future large text, image, file, or binary transfers; TopicBus may carry only small inline content or transfer manifests.
 - Require explicit user enablement before reading from or writing to the system clipboard.
+- Run node registration/login in the background as part of the connect lifecycle; the primary UI must not require separate manual register or login actions.
+- Clear local login/session state in the background when the user disconnects or the app shuts down.
 - Subscribe to a configured clipboard topic after successful node login.
+- Allow the user to configure the parent Hub / connection endpoint used by this node before connecting.
 - Publish a clipboard event when local clipboard text changes and passes validation.
 - Apply a valid remote clipboard event to the local system clipboard.
 - Prevent local publish and remote apply loops.
@@ -63,7 +66,7 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 
 ## Functional Requirements
 
-1. ClipboardNode must maintain a runtime state with connection status, auth state, enabled flag, active topic, max inline bytes, last local hash, recent event IDs, and last error.
+1. ClipboardNode must maintain a runtime state with connection status, auth state, parent Hub endpoint, enabled flag, active topic, max inline bytes, last local hash, recent event IDs, and last error.
 2. ClipboardNode must treat `enabled=false` as the safe default.
 3. ClipboardNode must require a non-empty TopicBus topic or channel before syncing.
 4. ClipboardNode must normalize outbound text as UTF-8 and reject invalid or unsupported clipboard formats.
@@ -74,12 +77,15 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 9. ClipboardNode must ignore duplicate `event_id` values within a bounded recent-event window.
 10. ClipboardNode must ignore events whose text hash matches a recent local write caused by the same remote event.
 11. ClipboardNode must avoid logging clipboard text; logs may include event ID, topic, byte length, hash prefix, and status.
-12. ClipboardNode must resubscribe after reconnect or login when enabled.
-13. ClipboardNode must unsubscribe or stop applying remote events when disabled.
-14. ClipboardNode must expose enough state for UI or CLI diagnostics without revealing clipboard text.
-15. ClipboardNode must distinguish automatic desktop sync from mobile manual/share flows.
-16. ClipboardNode must support at least these UI surfaces:
+12. ClipboardNode must perform background registration/login after a transport connection is established, and must expose only UI-safe progress/error status.
+13. ClipboardNode must resubscribe after reconnect or login when enabled.
+14. ClipboardNode must unsubscribe or stop applying remote events when disabled.
+15. ClipboardNode must clear in-memory login state, node identity, subscriptions, and watchers when the user disconnects or the app shuts down.
+16. ClipboardNode must expose enough state for UI or CLI diagnostics without revealing clipboard text.
+17. ClipboardNode must distinguish automatic desktop sync from mobile manual/share flows.
+18. ClipboardNode must support at least these UI surfaces:
     - connection and login status;
+    - parent Hub / endpoint configuration;
     - device identity and channel selection;
     - sync enable/disable;
     - local clipboard watch/apply policies;
@@ -87,8 +93,8 @@ Security is based on the private MyFlowHub network, authenticated node identity,
     - manual send current clipboard;
     - recent transfer status without forced body exposure;
     - error and validation status.
-17. ClipboardNode must not treat publish success as remote apply success.
-18. ClipboardNode must not create new MyFlowHub protocol actions or rely on server-side ClipboardNode-specific behavior.
+19. ClipboardNode must not treat publish success as remote apply success.
+20. ClipboardNode must not create new MyFlowHub protocol actions or rely on server-side ClipboardNode-specific behavior.
 
 ## Non-functional Requirements
 
@@ -109,6 +115,7 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 - TopicBus publish events on the configured clipboard topic.
 - Runtime config:
   - `enabled`
+  - `parent_endpoint`
   - `topic`
   - `max_inline_bytes`
   - `device_label`

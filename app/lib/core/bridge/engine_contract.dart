@@ -25,6 +25,7 @@ class PlatformCapability {
 class ClipboardSettings {
   const ClipboardSettings({
     required this.enabled,
+    required this.parentEndpoint,
     required this.topic,
     required this.deviceLabel,
     required this.maxInlineBytes,
@@ -36,6 +37,7 @@ class ClipboardSettings {
   factory ClipboardSettings.defaults() {
     return const ClipboardSettings(
       enabled: false,
+      parentEndpoint: '127.0.0.1:9000',
       topic: 'clipboard/shared',
       deviceLabel: 'local-device',
       maxInlineBytes: 65536,
@@ -46,6 +48,7 @@ class ClipboardSettings {
   }
 
   final bool enabled;
+  final String parentEndpoint;
   final String topic;
   final String deviceLabel;
   final int maxInlineBytes;
@@ -55,6 +58,7 @@ class ClipboardSettings {
 
   ClipboardSettings copyWith({
     bool? enabled,
+    String? parentEndpoint,
     String? topic,
     String? deviceLabel,
     int? maxInlineBytes,
@@ -64,6 +68,7 @@ class ClipboardSettings {
   }) {
     return ClipboardSettings(
       enabled: enabled ?? this.enabled,
+      parentEndpoint: parentEndpoint ?? this.parentEndpoint,
       topic: topic ?? this.topic,
       deviceLabel: deviceLabel ?? this.deviceLabel,
       maxInlineBytes: maxInlineBytes ?? this.maxInlineBytes,
@@ -76,6 +81,7 @@ class ClipboardSettings {
   Map<String, Object> toJson() {
     return {
       'enabled': enabled,
+      'parent_endpoint': parentEndpoint,
       'topic': topic,
       'device_label': deviceLabel,
       'max_inline_bytes': maxInlineBytes,
@@ -115,6 +121,7 @@ class ClipboardEngineState {
     required this.busy,
     required this.previewMode,
     required this.hubEndpoint,
+    required this.authStage,
     required this.nodeId,
     required this.settings,
     required this.capability,
@@ -129,6 +136,7 @@ class ClipboardEngineState {
       busy: false,
       previewMode: true,
       hubEndpoint: '127.0.0.1:9000',
+      authStage: '等待连接',
       nodeId: null,
       settings: ClipboardSettings.defaults(),
       capability: capability,
@@ -142,6 +150,7 @@ class ClipboardEngineState {
   final bool busy;
   final bool previewMode;
   final String hubEndpoint;
+  final String authStage;
   final int? nodeId;
   final ClipboardSettings settings;
   final PlatformCapability capability;
@@ -154,6 +163,7 @@ class ClipboardEngineState {
     bool? busy,
     bool? previewMode,
     String? hubEndpoint,
+    String? authStage,
     int? nodeId,
     bool clearNodeId = false,
     ClipboardSettings? settings,
@@ -167,6 +177,7 @@ class ClipboardEngineState {
       busy: busy ?? this.busy,
       previewMode: previewMode ?? this.previewMode,
       hubEndpoint: hubEndpoint ?? this.hubEndpoint,
+      authStage: authStage ?? this.authStage,
       nodeId: clearNodeId ? null : nodeId ?? this.nodeId,
       settings: settings ?? this.settings,
       capability: capability ?? this.capability,

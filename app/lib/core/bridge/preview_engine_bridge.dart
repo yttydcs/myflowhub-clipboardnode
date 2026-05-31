@@ -73,13 +73,39 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
 
   @override
   Future<void> connect() async {
-    _emit(_state.copyWith(busy: true, lastError: ''));
-    await Future<void>.delayed(const Duration(milliseconds: 420));
+    final parentEndpoint = _state.settings.parentEndpoint.trim();
+    if (parentEndpoint.isEmpty) {
+      throw StateError('请先填写父节点地址');
+    }
+    _emit(
+      _state.copyWith(
+        busy: true,
+        connected: false,
+        loggedIn: false,
+        clearNodeId: true,
+        hubEndpoint: parentEndpoint,
+        authStage: '连接父节点',
+        lastError: '',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    _emit(
+      _state.copyWith(
+        connected: true,
+        hubEndpoint: parentEndpoint,
+        authStage: '后台注册',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 160));
+    _emit(_state.copyWith(authStage: '后台登录'));
+    await Future<void>.delayed(const Duration(milliseconds: 160));
     _emit(
       _state.copyWith(
         connected: true,
         loggedIn: true,
         busy: false,
+        hubEndpoint: parentEndpoint,
+        authStage: '已认证',
         nodeId: 120,
       ),
     );
@@ -93,6 +119,7 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
         loggedIn: false,
         busy: false,
         clearNodeId: true,
+        authStage: '登录态已清理',
         lastError: '',
       ),
     );
@@ -100,7 +127,11 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
 
   @override
   Future<void> updateSettings(ClipboardSettings settings) async {
+    final normalizedParentEndpoint = settings.parentEndpoint.trim();
     final normalizedTopic = settings.topic.trim();
+    if (normalizedParentEndpoint.isEmpty) {
+      throw StateError('父节点地址不能为空');
+    }
     if (settings.enabled && normalizedTopic.isEmpty) {
       throw StateError('启用同步时必须填写 Topic');
     }
@@ -109,7 +140,11 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
     }
     _emit(
       _state.copyWith(
-        settings: settings.copyWith(topic: normalizedTopic),
+        hubEndpoint: normalizedParentEndpoint,
+        settings: settings.copyWith(
+          parentEndpoint: normalizedParentEndpoint,
+          topic: normalizedTopic,
+        ),
         lastError: '',
       ),
     );
@@ -163,6 +198,17 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
 
   @override
   Future<void> dispose() async {
+    if (_state.connected || _state.loggedIn || _state.busy) {
+      _emit(
+        _state.copyWith(
+          connected: false,
+          loggedIn: false,
+          busy: false,
+          clearNodeId: true,
+          authStage: '登录态已清理',
+        ),
+      );
+    }
     await _states.close();
   }
 }

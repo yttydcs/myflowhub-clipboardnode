@@ -30,6 +30,7 @@ type EngineEvent struct {
 
 type Settings struct {
 	Enabled          bool   `json:"enabled"`
+	ParentEndpoint   string `json:"parent_endpoint"`
 	Topic            string `json:"topic"`
 	DeviceLabel      string `json:"device_label,omitempty"`
 	MaxInlineBytes   int    `json:"max_inline_bytes"`
@@ -41,6 +42,7 @@ type Settings struct {
 type Status struct {
 	Connected      bool   `json:"connected"`
 	LoggedIn       bool   `json:"logged_in"`
+	ParentEndpoint string `json:"parent_endpoint"`
 	Enabled        bool   `json:"enabled"`
 	Topic          string `json:"topic"`
 	DeviceLabel    string `json:"device_label,omitempty"`

@@ -7,6 +7,9 @@ abstract final class AppColors {
   static const ink = Color(0xFF192522);
   static const inkMuted = Color(0xFF66736F);
   static const border = Color(0xFFD9E3E0);
+  static const switchOffThumb = Color(0xFF5F6F6B);
+  static const switchOffTrack = Color(0xFFE8EFED);
+  static const switchDisabledThumb = Color(0xFFC8D4D0);
   static const teal = Color(0xFF167C72);
   static const tealSoft = Color(0xFFDDEFEB);
   static const coral = Color(0xFFCA674E);
@@ -18,6 +21,17 @@ abstract final class AppColors {
 }
 
 abstract final class AppTheme {
+  static const fontFamilyFallback = <String>[
+    'Microsoft YaHei UI',
+    'Segoe UI Variable',
+    'Segoe UI',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Noto Sans CJK SC',
+    'Noto Sans SC',
+    'Roboto',
+  ];
+
   static ThemeData light() {
     final scheme =
         ColorScheme.fromSeed(
@@ -34,7 +48,7 @@ abstract final class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.canvas,
-      fontFamily: 'Segoe UI',
+      fontFamilyFallback: fontFamilyFallback,
     );
     return base.copyWith(
       appBarTheme: const AppBarTheme(
@@ -85,12 +99,40 @@ abstract final class AppTheme {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
-          return states.contains(WidgetState.selected) ? Colors.white : null;
+          if (states.contains(WidgetState.disabled)) {
+            return states.contains(WidgetState.selected)
+                ? AppColors.surface
+                : AppColors.switchDisabledThumb;
+          }
+          return states.contains(WidgetState.selected)
+              ? Colors.white
+              : AppColors.switchOffThumb;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.disabled)) {
+            return states.contains(WidgetState.selected)
+                ? AppColors.tealSoft
+                : AppColors.surfaceMuted;
+          }
           return states.contains(WidgetState.selected)
               ? AppColors.teal
+              : AppColors.switchOffTrack;
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          return states.contains(WidgetState.selected)
+              ? Colors.transparent
               : AppColors.border;
+        }),
+        trackOutlineWidth: WidgetStateProperty.resolveWith((states) {
+          return states.contains(WidgetState.selected) ? 0 : 1;
+        }),
+        overlayColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.pressed) ||
+              states.contains(WidgetState.hovered) ||
+              states.contains(WidgetState.focused)) {
+            return AppColors.tealSoft;
+          }
+          return Colors.transparent;
         }),
       ),
       textTheme: base.textTheme.copyWith(

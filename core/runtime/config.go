@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	DefaultParentEndpoint = "127.0.0.1:9000"
 	DefaultMaxInlineBytes = 65536
 	HistoryRetentionNone  = "none"
 	defaultRecentLimit    = 128
@@ -14,6 +15,7 @@ const (
 
 type Config struct {
 	Enabled          bool   `json:"enabled"`
+	ParentEndpoint   string `json:"parent_endpoint"`
 	Topic            string `json:"topic"`
 	MaxInlineBytes   int    `json:"max_inline_bytes"`
 	DeviceLabel      string `json:"device_label,omitempty"`
@@ -24,6 +26,7 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
+		ParentEndpoint:   DefaultParentEndpoint,
 		Enabled:          false,
 		MaxInlineBytes:   DefaultMaxInlineBytes,
 		AutoWatch:        false,
@@ -33,6 +36,7 @@ func DefaultConfig() Config {
 }
 
 func NormalizeConfig(cfg Config) (Config, error) {
+	cfg.ParentEndpoint = strings.TrimSpace(cfg.ParentEndpoint)
 	cfg.Topic = strings.TrimSpace(cfg.Topic)
 	cfg.DeviceLabel = strings.TrimSpace(cfg.DeviceLabel)
 	cfg.HistoryRetention = strings.TrimSpace(cfg.HistoryRetention)
@@ -41,6 +45,9 @@ func NormalizeConfig(cfg Config) (Config, error) {
 	}
 	if cfg.MaxInlineBytes == 0 {
 		cfg.MaxInlineBytes = DefaultMaxInlineBytes
+	}
+	if cfg.ParentEndpoint == "" {
+		cfg.ParentEndpoint = DefaultParentEndpoint
 	}
 	if cfg.MaxInlineBytes < 0 {
 		return Config{}, fmt.Errorf("max_inline_bytes must be positive")
