@@ -3,10 +3,10 @@
 ## Workflow Information
 
 - Repo: `D:/project/MyFlowHub3/repo/MyFlowHub-ClipboardNode`
-- Branch: `chore/debug-latest-build`
-- Base: `master` at `fffd1da feat: 完成剪贴板父节点配置与后台认证生命周期`
-- Worktree: `D:/project/MyFlowHub3/worktrees/chore-debug-latest-build/MyFlowHub-ClipboardNode`
-- Current Stage: `4 - Change Archive ready; merge/push pending workflow end confirmation`
+- Branch: `fix/debug-latest-ci`
+- Base: `master` at `10dae6a chore: 添加debug-latest自动构建发布`
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-debug-latest-ci/MyFlowHub-ClipboardNode`
+- Current Stage: `3.1 - Corrective planning after first remote run`
 
 ## Stage Records
 
@@ -355,7 +355,140 @@ Current repo has Go validation and Flutter local validation instructions, but no
 - Related specs: [docs/specs/clipboard-sync.md](docs/specs/clipboard-sync.md)
 - Related lessons: [docs/lessons/flutter-windows-sdk-shared-bat-git.md](docs/lessons/flutter-windows-sdk-shared-bat-git.md)
 - Index update: [docs/change/README.md](docs/change/README.md)
-- Workflow end: pending user confirmation before merge/worktree cleanup.
+- Workflow end: rolled back to Stage 3.1 after first remote run exposed two issues.
+
+### Corrective Iteration - First Remote Run
+
+#### Rollback Reason
+
+GitHub Actions run `26717910962` uploaded artifacts and published `debug-latest`, but log inspection found one failed Flutter widget test. The PowerShell step continued because `$ErrorActionPreference = "Stop"` does not reliably stop on non-zero native command exits. Flutter `3.44.0` also introduced a `ListTile` assertion for a `DecoratedBox` background between the tile and its nearest `Material` ancestor.
+
+#### Docs Governance Routing Decision
+
+使用 `$m-docs` 校验修复计划、change 更新和 lessons 入口。
+
+- Requirements impact: none
+- Specs impact: none
+- Lessons impact: add
+- Related lessons:
+  - `docs/lessons/debug-latest-ci-native-exit-flutter-material.md`
+
+#### Executable Task List
+
+- `CI-4`: Harden GitHub Actions native command failure handling, pin Flutter `3.41.9`, and upgrade official GitHub Actions to Node 24-compatible major versions.
+- `CI-5`: Replace the panel `DecoratedBox` background wrapper with a `Material` wrapper so descendant `ListTile` widgets render correctly under newer Flutter assertions.
+- `CI-6`: Update change archive and add a reusable lesson for false-success CI publishing and Flutter `ListTile` material ancestry checks.
+- `CI-7`: Re-run local validation, push, inspect the second remote run, and confirm `debug-latest` assets were refreshed only after all tests passed.
+
+#### Task Details
+
+##### CI-4 - Strict CI Native Command Handling
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-debug-latest-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: ensure any failed Go or Flutter command fails the build job before packaging or publishing.
+- Files / Modules: `.github/workflows/debug-latest.yml`
+- Write Set: `.github/workflows/debug-latest.yml`
+- Acceptance:
+  - each native validation/build command has an explicit exit-code assertion;
+  - Flutter version is pinned to `3.41.9`;
+  - official GitHub Actions use current Node 24-compatible majors.
+- Test Points:
+  - YAML structure parse;
+  - inspect remote job behavior after push.
+- Rollback: revert workflow hardening block and action version changes.
+
+##### CI-5 - Flutter Material Ancestor Compatibility
+
+- Owner: main agent
+- Worktree: same
+- Plan Path: `plan.md`
+- Goal: keep panel styling while ensuring `ListTile` background/ink behavior is backed by a `Material` ancestor.
+- Files / Modules: `app/lib/features/shell/clipboard_shell.dart`
+- Write Set: `app/lib/features/shell/clipboard_shell.dart`
+- Acceptance:
+  - `_Panel` uses `Material` with border shape and clipping;
+  - widget tests pass locally and on GitHub Actions.
+- Test Points:
+  - `flutter analyze`;
+  - `flutter test`;
+  - `flutter build windows --debug`.
+- Rollback: restore `_Panel` container wrapper.
+
+##### CI-6 - Archive And Lesson Update
+
+- Owner: main agent
+- Worktree: same
+- Plan Path: `plan.md`
+- Goal: record the remote-run failure mode and quick checks.
+- Files / Modules: `docs/change/`, `docs/lessons/`
+- Write Set:
+  - `docs/change/2026-05-31_debug-latest-build.md`
+  - `docs/lessons/debug-latest-ci-native-exit-flutter-material.md`
+  - `docs/lessons/README.md`
+- Acceptance: future debugging starts from the lesson instead of re-reading remote logs.
+- Test Points: markdown link/index inspection.
+- Rollback: revert lesson and archive update.
+
+##### CI-7 - Corrective Validation
+
+- Owner: main agent
+- Worktree: same
+- Plan Path: `plan.md`
+- Goal: verify the corrected automation end to end.
+- Files / Modules: changed files only.
+- Write Set: none unless validation exposes a planned issue.
+- Acceptance:
+  - local validation passes;
+  - second GitHub Actions run passes without publishing after a failed test;
+  - `debug-latest` release points at the corrective commit.
+- Test Points:
+  - `GOWORK=off go test ./... -count=1`;
+  - `flutter analyze`;
+  - `flutter test`;
+  - `flutter build windows --debug`;
+  - YAML structure parse;
+  - `git diff --check`;
+  - `gh run watch`;
+  - `gh release view debug-latest`.
+- Rollback: no direct write set; fix or revert failing task outputs.
+
+#### Parallelism Assessment
+
+- Workflow, UI compatibility, and docs files are separable, but this is a small corrective iteration driven by one remote run.
+- No sub-agent dispatch is used because integrated validation is the dominant cost and the write sets are small.
+
+### Corrective Stage 3.2 - Implementation Result
+
+- `CI-4`: completed.
+  - `.github/workflows/debug-latest.yml` now checks `$LASTEXITCODE` after each Go/Flutter native command.
+  - Flutter is pinned to `3.41.9`.
+  - Official GitHub Actions were updated to `checkout@v6`, `setup-go@v6`, `upload-artifact@v7`, and `download-artifact@v8`.
+- `CI-5`: completed.
+  - `_Panel` now uses a shaped `Material` surface instead of a colored `DecoratedBox`, keeping the existing visual surface while satisfying `ListTile` material ancestry checks.
+- `CI-6`: completed.
+  - Change archive updated.
+  - Lesson added and indexed.
+- `CI-7`: local validation completed; remote validation pending after push.
+
+### Corrective Stage 3.3 - Code Review
+
+- 需求覆盖: 通过。Covers both false-success CI publishing and Flutter test failure.
+- 架构合理性: 通过。Release job still depends on build job; build job now fails before packaging when validation fails.
+- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）: 通过。Only CI checks and one UI surface wrapper changed.
+- 可读性与一致性: 通过。Workflow failure checks are explicit and colocated with native commands.
+- 可扩展性与配置化: 通过。Flutter version pin is centralized in the setup step and can be updated intentionally later.
+- 稳定性与安全: 通过。Publish permissions remain isolated to the release job.
+- 测试覆盖情况: 通过 locally:
+  - `GOWORK=off go test ./... -count=1`
+  - `flutter analyze`
+  - `flutter test`
+  - `flutter build windows --debug`
+  - YAML structure parse
+  - packaging simulation
+  - `git diff --check`
+- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）: 通过。No sub-agent dispatch.
 
 阻塞：否
-等待 workflow end confirmation
+进入 corrective merge/push and remote validation

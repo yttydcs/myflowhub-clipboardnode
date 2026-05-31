@@ -23,9 +23,9 @@ none
 
 ## Lessons impact
 
-none
+updated
 
-本次没有新增可复用故障经验；若后续 GitHub Actions 首跑暴露 Flutter/runner 环境问题，再补充 `docs/lessons`。
+首个远端 run 暴露出 PowerShell native command 失败未中断 workflow，以及 Flutter 新版本 `ListTile` material ancestry 断言问题，已补充 reusable lesson。
 
 ## Related requirements
 
@@ -38,17 +38,24 @@ none
 ## Related lessons
 
 - [../lessons/flutter-windows-sdk-shared-bat-git.md](../lessons/flutter-windows-sdk-shared-bat-git.md)
+- [../lessons/debug-latest-ci-native-exit-flutter-material.md](../lessons/debug-latest-ci-native-exit-flutter-material.md)
 
 ## 对应 plan.md 任务映射
 
 - `CI-1`: `.github/workflows/debug-latest.yml`
 - `CI-2`: `README.md`, `docs/change/2026-05-31_debug-latest-build.md`, `docs/change/README.md`
 - `CI-3`: 本地验证与审查记录
+- `CI-4`: 首跑后修复 PowerShell native command 退出码检查、Flutter 版本 pin、Actions major 版本。
+- `CI-5`: 修复 Flutter 3.44 `ListTile` material ancestry 断言。
+- `CI-6`: 增加 lessons 和归档修正。
+- `CI-7`: 二次本地/远端验证。
 
 ## 经验 / 教训摘要
 
 - Flutter Windows 发布不能只上传 `.exe`；debug 预览包必须包含 runner 目录中的 DLL、`data/` 和其他运行时文件。
 - `debug-latest` 是可移动预览通道，不等价于签名生产版本。
+- PowerShell 的 `$ErrorActionPreference = "Stop"` 不能替代 native command 的显式 `$LASTEXITCODE` 检查。
+- Flutter stable 自动漂移会把本地没暴露的 widget 断言带到 CI；CI 需要 pin 已验证版本或主动兼容新版本断言。
 
 ## 可复用排查线索
 
@@ -66,6 +73,7 @@ none
 - 选择 Flutter stable channel，而不是写死本地工作区 SDK 路径，避免 CI 依赖环境私有路径。
 - 只在 `master` push 发布，pull request 和手动运行只用于验证/下载 Actions artifact。
 - Go action 缓存先关闭，因为当前 Go module 没有 `go.sum`，后续有依赖后可再启用缓存。
+- 首跑后将 Flutter pin 到 `3.41.9`，并把 GitHub 官方 Actions 升级到 Node 24-compatible major 版本。
 
 ## 测试与验证方式 / 结果
 
@@ -77,6 +85,8 @@ none
 - 本地模拟 packaging 脚本: 通过，生成 `myflowhub-clipboardnode-windows-debug.zip` 和 `clipboardnode-windows-amd64.exe`。
 - `git diff --check`: 通过。
 - `actionlint`: 本机未安装，未运行；workflow 已做 YAML 解析和命令路径人工审查。
+- 首个远端 run `26717910962`: job conclusion 为 success，但日志显示 `flutter test` 4 通过 1 失败，原因是 native command 失败未中断 PowerShell step；该 run 的 release 资产不应作为最终验证结果。
+- 修复后验证结果见后续提交和第二个远端 run。
 
 ## 潜在影响
 

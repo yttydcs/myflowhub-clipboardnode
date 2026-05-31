@@ -20,10 +20,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
           cache: false
@@ -31,6 +31,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.41.9"
           channel: stable
           cache: true
 
@@ -42,7 +43,10 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path "build" | Out-Null
           go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { throw "go test failed with exit code $LASTEXITCODE" }
+
           go build -o "build/clipboardnode-windows-amd64.exe" ./cmd/clipboardnode
+          if ($LASTEXITCODE -ne 0) { throw "go build failed with exit code $LASTEXITCODE" }
 
           if (-not (Test-Path -LiteralPath "build/clipboardnode-windows-amd64.exe")) {
             throw "Go CLI build did not produce build/clipboardnode-windows-amd64.exe"
@@ -55,10 +59,19 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           flutter --version
+          if ($LASTEXITCODE -ne 0) { throw "flutter --version failed with exit code $LASTEXITCODE" }
+
           flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw "flutter pub get failed with exit code $LASTEXITCODE" }
+
           flutter analyze
+          if ($LASTEXITCODE -ne 0) { throw "flutter analyze failed with exit code $LASTEXITCODE" }
+
           flutter test
+          if ($LASTEXITCODE -ne 0) { throw "flutter test failed with exit code $LASTEXITCODE" }
+
           flutter build windows --debug
+          if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed with exit code $LASTEXITCODE" }
 
       - name: Package debug artifacts
         shell: pwsh
@@ -108,7 +121,7 @@ jobs:
           }
 
       - name: Upload debug artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: myflowhub-clipboardnode-windows-debug
           if-no-files-found: error
@@ -131,7 +144,7 @@ jobs:
 
     steps:
       - name: Download debug artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: myflowhub-clipboardnode-windows-debug
           path: artifacts
