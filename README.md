@@ -4,8 +4,14 @@ Independent MyFlowHub node application for clipboard synchronization.
 
 ## Current Status
 
-This repository contains the MVP headless core and Windows host skeleton:
+This repository contains the headless sync core, Windows host skeleton, and the
+first cross-platform Flutter application shell:
 
+- `app` contains the Flutter UI shell for desktop, mobile, and web preview. It
+  currently uses a preview engine bridge while the live MyFlowHub TopicBus
+  adapter is implemented.
+- `bridge` defines the JSON command/event contract shared by the Flutter UI and
+  the Go engine.
 - `core/runtime` validates `clipboard.text.v1` payloads, publishes local text changes through a TopicBus interface, applies remote text events, deduplicates event IDs, and suppresses clipboard write loops.
 - `core/configstore` persists only non-sensitive settings. Clipboard text and event bodies are never written to config.
 - `windows` provides a Win32 `CF_UNICODETEXT` adapter with bounded reads and a polling watcher.
@@ -22,10 +28,10 @@ Sync is disabled by default. The first phase is text-only, online-only, and best
 ## Repository Shape
 
 ```text
+app/           Flutter cross-platform application shell
+bridge/        Go JSON bridge contract for UI <-> engine commands/events
 core/          shared runtime, config, topic event model, dedupe logic
 windows/       Windows host and clipboard adapter
-android/       Android host and clipboard adapter
-nodemobile/    Android gomobile bridge
 docs/          requirements, specs, plans, changes, lessons
 scripts/       build and maintenance scripts
 ```
@@ -47,5 +53,18 @@ Or run:
 
 ```powershell
 .\scripts\validate.ps1
+```
+
+Flutter validation uses the local Flutter SDK selected during this workflow:
+
+```powershell
+$flutterRoot = "D:\project\MyFlowHub3\.tmp\tools\flutter-sdk-3.41.9\flutter"
+$env:PATH = "$flutterRoot\bin;$env:PATH"
+$env:PUB_CACHE = "$flutterRoot\.pub-cache"
+cd app
+flutter analyze
+flutter test
+flutter build windows
+flutter build web
 ```
 

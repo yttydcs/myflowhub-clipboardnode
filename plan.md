@@ -6,7 +6,7 @@
 - Branch: `feat/clipboard-node`
 - Base: `master` at `0992111 chore: 初始化剪贴板节点仓库`
 - Worktree: `D:/project/MyFlowHub3/worktrees/feat-clipboard-node/MyFlowHub-ClipboardNode`
-- Current Stage: `3.1 - Planning`
+- Current Stage: `3.2 - Implementation`
 
 ## Stage Records
 
@@ -303,18 +303,28 @@ This iteration upgrades the target to a complete cross-platform application and 
 ##### APP-2 - Flutter App Shell
 
 - Owner: main agent
+- Status: completed in this iteration
 - Worktree: same
 - Plan Path: `plan.md`
 - Goal: scaffold production-shaped Flutter app shell.
 - Files / Modules: `app/`
 - Write Set: `app/`
 - Acceptance: app builds/runs for at least Windows target locally; initial navigation and responsive layout exist.
-- Test Points: `flutter test`, `flutter run -d windows` or `flutter build windows`.
+- Test Points: `flutter analyze`, `flutter test`, `flutter build windows`, `flutter build web`.
 - Rollback: remove `app/`.
+- Result:
+  - Created `app/` with Flutter Windows, Android, iOS, and Web targets.
+  - Replaced template counter UI with a responsive ClipboardNode shell:
+    - overview;
+    - manual send;
+    - settings;
+    - recent activity.
+  - Current UI uses a preview bridge until APP-4 live TopicBus transport is wired.
 
 ##### APP-3 - Bridge API
 
 - Owner: main agent
+- Status: completed for initial JSON contract
 - Worktree: same
 - Plan Path: `plan.md`
 - Goal: define stable JSON command/event bridge between Flutter UI and Go engine.
@@ -323,6 +333,10 @@ This iteration upgrades the target to a complete cross-platform application and 
 - Acceptance: bridge can exchange status/config/send-text commands in tests without live MyFlowHub.
 - Test Points: Go unit tests and Flutter bridge tests.
 - Rollback: revert bridge files.
+- Result:
+  - Added Go `bridge` package with `EngineCommand`, `EngineEvent`, `Settings`, `Status`, `Activity`, and `PlatformCapability`.
+  - Added Flutter mirror DTOs and preview bridge under `app/lib/core/bridge`.
+  - Added tests to ensure status events do not expose clipboard text.
 
 ##### APP-4 - Live TopicBus Adapter
 
@@ -339,6 +353,7 @@ This iteration upgrades the target to a complete cross-platform application and 
 ##### APP-5 - Initial UI Screens
 
 - Owner: main agent
+- Status: completed for preview-backed first shell
 - Worktree: same
 - Plan Path: `plan.md`
 - Goal: implement usable UI for core workflows.
@@ -347,10 +362,14 @@ This iteration upgrades the target to a complete cross-platform application and 
 - Acceptance: user can see connection/login state, enable sync, configure topic/channel, send current text manually, and inspect recent status.
 - Test Points: Flutter widget tests; desktop screenshot/manual preview.
 - Rollback: revert UI screen files.
+- Result:
+  - Implemented connection/login preview state, sync status, topic/settings, manual send, and metadata-only activity list.
+  - Preview URL after build can be served from `app/build/web`.
 
 ##### APP-6 - Platform Capability Policy
 
 - Owner: main agent
+- Status: completed for UI/DTO defaults
 - Worktree: same
 - Plan Path: `plan.md`
 - Goal: represent desktop/mobile clipboard capability differences in engine and UI.
@@ -359,6 +378,9 @@ This iteration upgrades the target to a complete cross-platform application and 
 - Acceptance: mobile limitations are visible and manual/share flow is first-class; desktop auto-watch remains configurable.
 - Test Points: unit tests for policy defaults; UI tests for capability-dependent controls.
 - Rollback: revert capability files.
+- Result:
+  - Added `auto_watch`, `auto_apply`, and `history_retention` to Go runtime config defaults and validation.
+  - Added Flutter capability model that distinguishes desktop automatic watch from mobile manual/share behavior.
 
 ##### APP-7 - Validation And Closeout
 
@@ -393,12 +415,22 @@ This iteration upgrades the target to a complete cross-platform application and 
   - Bridge API (`APP-3`) gates both sides and should be owned by the main agent initially.
 - No sub-agent dispatch is used in this planning turn.
 
+#### Toolchain Confirmation
+
+- User confirmed Flutter direction with "好的，那就这样吧".
+- Flutter SDK installed under workspace temp tools, not committed:
+  - `D:/project/MyFlowHub3/.tmp/tools/flutter-sdk-3.41.9/flutter`
+  - `flutter --version`: Flutter `3.41.9`, Dart `3.11.5`.
+  - `flutter doctor -v`: Flutter, Windows desktop, Android toolchain, Chrome, Visual Studio, and connected devices pass.
+  - Remaining doctor warning: network resource checks for `https://maven.google.com/` and `https://github.com/` timed out; this does not block local app scaffolding/build, but dependency downloads may need retry or mirrors.
+- Local SDK note:
+  - The downloaded Flutter Windows SDK had `bin/internal/shared.bat` invoking `$git rev-parse HEAD`, which fails in this Windows command environment and forced a hung tool rebuild.
+  - The local SDK file was patched outside this repository to use `git rev-parse HEAD`.
+  - This is environment/toolchain state only; no application source depends on the patched SDK.
+
 #### Issue List
 
-- Flutter/Dart toolchain missing:
-  - `flutter --version`: command not found.
-  - `dart --version`: command not found.
+- None blocking Stage 3.2.
 
-阻塞：是
-禁止进入 3.2
-禁止派发子Agent
+阻塞：否
+进入 3.2
