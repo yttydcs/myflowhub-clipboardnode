@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-enum ActivityKind { published, applied, ignored, error }
+enum ActivityKind { published, applied, pending, ignored, error }
 
 enum HistoryRetention { none, metadata }
 
@@ -32,6 +32,8 @@ class ClipboardSettings {
     required this.autoWatch,
     required this.autoApply,
     required this.historyRetention,
+    required this.transferProvider,
+    required this.transferRef,
   });
 
   factory ClipboardSettings.defaults() {
@@ -44,6 +46,8 @@ class ClipboardSettings {
       autoWatch: false,
       autoApply: false,
       historyRetention: HistoryRetention.metadata,
+      transferProvider: '',
+      transferRef: '',
     );
   }
 
@@ -55,6 +59,8 @@ class ClipboardSettings {
   final bool autoWatch;
   final bool autoApply;
   final HistoryRetention historyRetention;
+  final String transferProvider;
+  final String transferRef;
 
   ClipboardSettings copyWith({
     bool? enabled,
@@ -65,6 +71,8 @@ class ClipboardSettings {
     bool? autoWatch,
     bool? autoApply,
     HistoryRetention? historyRetention,
+    String? transferProvider,
+    String? transferRef,
   }) {
     return ClipboardSettings(
       enabled: enabled ?? this.enabled,
@@ -75,6 +83,8 @@ class ClipboardSettings {
       autoWatch: autoWatch ?? this.autoWatch,
       autoApply: autoApply ?? this.autoApply,
       historyRetention: historyRetention ?? this.historyRetention,
+      transferProvider: transferProvider ?? this.transferProvider,
+      transferRef: transferRef ?? this.transferRef,
     );
   }
 
@@ -88,6 +98,8 @@ class ClipboardSettings {
       'auto_watch': autoWatch,
       'auto_apply': autoApply,
       'history_retention': historyRetention.name,
+      'transfer_provider': transferProvider,
+      'transfer_ref': transferRef,
     };
   }
 }
@@ -126,6 +138,8 @@ class ClipboardEngineState {
     required this.settings,
     required this.capability,
     required this.activities,
+    required this.pendingEvent,
+    required this.transferStatus,
     required this.lastError,
   });
 
@@ -141,6 +155,8 @@ class ClipboardEngineState {
       settings: ClipboardSettings.defaults(),
       capability: capability,
       activities: const [],
+      pendingEvent: null,
+      transferStatus: null,
       lastError: '',
     );
   }
@@ -155,6 +171,8 @@ class ClipboardEngineState {
   final ClipboardSettings settings;
   final PlatformCapability capability;
   final List<ClipboardActivity> activities;
+  final PendingClipboardEvent? pendingEvent;
+  final TransferStatus? transferStatus;
   final String lastError;
 
   ClipboardEngineState copyWith({
@@ -169,6 +187,10 @@ class ClipboardEngineState {
     ClipboardSettings? settings,
     PlatformCapability? capability,
     List<ClipboardActivity>? activities,
+    PendingClipboardEvent? pendingEvent,
+    bool clearPendingEvent = false,
+    TransferStatus? transferStatus,
+    bool clearTransferStatus = false,
     String? lastError,
   }) {
     return ClipboardEngineState(
@@ -182,16 +204,50 @@ class ClipboardEngineState {
       settings: settings ?? this.settings,
       capability: capability ?? this.capability,
       activities: activities ?? this.activities,
+      pendingEvent: clearPendingEvent
+          ? null
+          : pendingEvent ?? this.pendingEvent,
+      transferStatus: clearTransferStatus
+          ? null
+          : transferStatus ?? this.transferStatus,
       lastError: lastError ?? this.lastError,
     );
   }
 }
 
+class PendingClipboardEvent {
+  const PendingClipboardEvent({
+    required this.eventId,
+    required this.byteSize,
+    required this.hashPrefix,
+  });
+
+  final String eventId;
+  final int byteSize;
+  final String hashPrefix;
+}
+
+class TransferStatus {
+  const TransferStatus({
+    required this.id,
+    required this.state,
+    required this.byteSize,
+    required this.hashPrefix,
+    required this.detail,
+  });
+
+  final String id;
+  final String state;
+  final int byteSize;
+  final String hashPrefix;
+  final String detail;
+}
+
 abstract final class EngineActions {
   static const connect = 'connect';
-  static const login = 'login';
   static const setConfig = 'set_config';
   static const sendText = 'send_text';
+  static const readClipboard = 'read_clipboard';
   static const applyEvent = 'apply_event';
   static const clearRecent = 'clear_recent';
   static const shutdown = 'shutdown';
@@ -199,6 +255,7 @@ abstract final class EngineActions {
 
 abstract final class EngineEvents {
   static const statusChanged = 'status.changed';
+  static const activityUpdated = 'activity.updated';
   static const transferUpdated = 'transfer.updated';
   static const clipboardReceived = 'clipboard.received';
   static const error = 'error';

@@ -322,7 +322,7 @@ class _OverviewSection extends StatelessWidget {
         const SizedBox(height: 18),
         _ResponsiveTwoColumn(
           first: _PolicyPanel(state: state),
-          second: _LastActivityPanel(state: state),
+          second: _QueuePanel(state: state),
         ),
       ],
     );
@@ -375,24 +375,39 @@ class _PolicyPanel extends StatelessWidget {
   }
 }
 
-class _LastActivityPanel extends StatelessWidget {
-  const _LastActivityPanel({required this.state});
+class _QueuePanel extends StatelessWidget {
+  const _QueuePanel({required this.state});
 
   final ClipboardEngineState state;
 
   @override
   Widget build(BuildContext context) {
+    final pending = state.pendingEvent;
+    final transfer = state.transferStatus;
     final latest = state.activities.firstOrNull;
     return _Panel(
-      title: '最近事件',
+      title: pending == null && transfer == null ? '最近事件' : '接收队列',
       icon: Icons.timeline_outlined,
-      child: latest == null
+      child: pending == null && transfer == null && latest == null
           ? const _EmptyState(
               icon: Icons.inbox_outlined,
               title: '暂无活动',
               detail: 'metadata only',
             )
-          : _ActivityTile(activity: latest),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (pending != null) ...[
+                  _PendingTile(pending: pending, onApply: null),
+                  if (transfer != null || latest != null) const Divider(),
+                ],
+                if (transfer != null) ...[
+                  _TransferTile(status: transfer),
+                  if (latest != null) const Divider(),
+                ],
+                if (latest != null) _ActivityTile(activity: latest),
+              ],
+            ),
     );
   }
 }
@@ -457,6 +472,13 @@ class _SendSectionState extends State<_SendSection> {
                 label: const Text('发送到 Topic'),
               ),
               OutlinedButton.icon(
+                onPressed: widget.state.capability.manualSend
+                    ? widget.controller.readClipboard
+                    : null,
+                icon: const Icon(Icons.content_paste_search, size: 18),
+                label: const Text('读取并发送'),
+              ),
+              OutlinedButton.icon(
                 onPressed: _text.text.isEmpty
                     ? null
                     : () => setState(_text.clear),
@@ -495,6 +517,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
   late final TextEditingController _topic;
   late final TextEditingController _deviceLabel;
   late final TextEditingController _maxInlineBytes;
+  late final TextEditingController _transferProvider;
+  late final TextEditingController _transferRef;
 
   @override
   void initState() {
@@ -506,6 +530,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
     _maxInlineBytes = TextEditingController(
       text: settings.maxInlineBytes.toString(),
     );
+    _transferProvider = TextEditingController(text: settings.transferProvider);
+    _transferRef = TextEditingController(text: settings.transferRef);
   }
 
   @override
@@ -519,6 +545,11 @@ class _SettingsSectionState extends State<_SettingsSection> {
         _maxInlineBytes,
         widget.state.settings.maxInlineBytes.toString(),
       );
+      _syncController(
+        _transferProvider,
+        widget.state.settings.transferProvider,
+      );
+      _syncController(_transferRef, widget.state.settings.transferRef);
     }
   }
 
@@ -528,6 +559,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
     _topic.dispose();
     _deviceLabel.dispose();
     _maxInlineBytes.dispose();
+    _transferProvider.dispose();
+    _transferRef.dispose();
     super.dispose();
   }
 
@@ -582,6 +615,20 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       labelText: '内联上限',
                       prefixIcon: Icon(Icons.data_object_outlined),
                       suffixText: 'bytes',
+                    ),
+                  ),
+                  TextField(
+                    controller: _transferProvider,
+                    decoration: const InputDecoration(
+                      labelText: '传输 Provider',
+                      prefixIcon: Icon(Icons.move_to_inbox_outlined),
+                    ),
+                  ),
+                  TextField(
+                    controller: _transferRef,
+                    decoration: const InputDecoration(
+                      labelText: '传输引用',
+                      prefixIcon: Icon(Icons.key_outlined),
                     ),
                   ),
                 ],
@@ -680,6 +727,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
             ? 'local-device'
             : _deviceLabel.text.trim(),
         maxInlineBytes: parsedLimit,
+        transferProvider: _transferProvider.text.trim(),
+        transferRef: _transferRef.text.trim(),
       ),
     );
   }
@@ -705,7 +754,10 @@ class _ActivitySection extends StatelessWidget {
         icon: const Icon(Icons.delete_sweep_outlined, size: 18),
         label: const Text('清空'),
       ),
-      child: state.activities.isEmpty
+      child:
+          state.activities.isEmpty &&
+              state.pendingEvent == null &&
+              state.transferStatus == null
           ? const _EmptyState(
               icon: Icons.inbox_outlined,
               title: '暂无活动',
@@ -713,6 +765,20 @@ class _ActivitySection extends StatelessWidget {
             )
           : Column(
               children: [
+                if (state.pendingEvent != null) ...[
+                  _PendingTile(
+                    pending: state.pendingEvent!,
+                    onApply: () =>
+                        controller.applyPending(state.pendingEvent!.eventId),
+                  ),
+                  if (state.transferStatus != null ||
+                      state.activities.isNotEmpty)
+                    const Divider(),
+                ],
+                if (state.transferStatus != null) ...[
+                  _TransferTile(status: state.transferStatus!),
+                  if (state.activities.isNotEmpty) const Divider(),
+                ],
                 for (final activity in state.activities) ...[
                   _ActivityTile(activity: activity),
                   if (activity != state.activities.last) const Divider(),
@@ -931,6 +997,7 @@ class _ActivityTile extends StatelessWidget {
     final tone = switch (activity.kind) {
       ActivityKind.published => _Tone.success,
       ActivityKind.applied => _Tone.info,
+      ActivityKind.pending => _Tone.warning,
       ActivityKind.ignored => _Tone.warning,
       ActivityKind.error => _Tone.error,
     };
@@ -974,6 +1041,124 @@ class _ActivityTile extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             activity.hashPrefix,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingTile extends StatelessWidget {
+  const _PendingTile({required this.pending, required this.onApply});
+
+  final PendingClipboardEvent pending;
+  final VoidCallback? onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _toneColors(_Tone.warning);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: colors.background,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              Icons.pending_actions,
+              color: colors.foreground,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('待应用远端文本', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 3),
+                Text(
+                  '${pending.eventId} · ${pending.byteSize} B',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          if (onApply == null)
+            Text(
+              pending.hashPrefix,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: onApply,
+              icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
+              label: const Text('应用'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransferTile extends StatelessWidget {
+  const _TransferTile({required this.status});
+
+  final TransferStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final unsupported = status.state == 'unsupported';
+    final tone = unsupported ? _Tone.error : _Tone.info;
+    final colors = _toneColors(tone);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: colors.background,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              unsupported ? Icons.block : Icons.move_to_inbox_outlined,
+              color: colors.foreground,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('大内容传输', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 3),
+                Text(
+                  '${status.state} · ${status.detail} · ${status.byteSize} B',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            status.hashPrefix,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
@@ -1309,6 +1494,7 @@ IconData _activityIcon(ActivityKind kind) {
   return switch (kind) {
     ActivityKind.published => Icons.north_east,
     ActivityKind.applied => Icons.south_west,
+    ActivityKind.pending => Icons.pending_actions,
     ActivityKind.ignored => Icons.block,
     ActivityKind.error => Icons.error_outline,
   };

@@ -97,6 +97,39 @@ func TestInspectTextRejectsOversize(t *testing.T) {
 	}
 }
 
+func TestClipboardTransferManifestV1ValidatesWithoutBody(t *testing.T) {
+	digest, err := InspectTextContent("oversize body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := NewClipboardTransferManifestV1(digest, []TransferReference{
+		{Provider: "stream", OpaqueID: "source-1"},
+	}, BuildEventOptions{
+		OriginNode:       12,
+		OriginInstanceID: "instance-a",
+		OriginDevice:     "win-laptop",
+		Now:              func() time.Time { return time.UnixMilli(1760000000000) },
+		NewEventID:       func() (string, error) { return "transfer-1", nil },
+	})
+	if err != nil {
+		t.Fatalf("NewClipboardTransferManifestV1 returned error: %v", err)
+	}
+	raw, err := MarshalClipboardTransferManifestV1(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "oversize body") {
+		t.Fatalf("manifest leaked clipboard body: %s", string(raw))
+	}
+	parsed, err := ParseClipboardTransferManifestV1(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.EventID != "transfer-1" || parsed.Size != len("oversize body") {
+		t.Fatalf("unexpected manifest: %+v", parsed)
+	}
+}
+
 func TestParseClipboardTextEventV1RejectsHashMismatch(t *testing.T) {
 	evt, err := NewClipboardTextEventV1("hello", BuildEventOptions{
 		OriginNode:       12,

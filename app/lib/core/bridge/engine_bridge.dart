@@ -13,6 +13,10 @@ abstract interface class ClipboardEngineBridge {
 
   Future<void> sendText(String text);
 
+  Future<void> readClipboard();
+
+  Future<void> applyPending(String eventId);
+
   Future<void> clearRecent();
 
   Future<void> dispose();

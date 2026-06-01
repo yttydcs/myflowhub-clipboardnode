@@ -42,13 +42,15 @@ jobs:
           go test ./... -count=1
 
           GOOS=windows GOARCH=amd64 go build -o dist/clipboardnode-windows-amd64.exe ./cmd/clipboardnode
+          GOOS=windows GOARCH=amd64 go build -o dist/clipboardnode-bridge-windows-amd64.exe ./cmd/clipboardnode-bridge
 
-          asset="dist/clipboardnode-windows-amd64.exe"
-          if [[ ! -f "${asset}" ]]; then
-            echo "Missing Go CLI artifact: ${asset}" >&2
-            exit 1
-          fi
-          printf -- '- %s (%s bytes)\n' "$(basename "${asset}")" "$(stat -c%s "${asset}")" >> "${GITHUB_STEP_SUMMARY}"
+          for asset in dist/clipboardnode-windows-amd64.exe dist/clipboardnode-bridge-windows-amd64.exe; do
+            if [[ ! -f "${asset}" ]]; then
+              echo "Missing Go artifact: ${asset}" >&2
+              exit 1
+            fi
+            printf -- '- %s (%s bytes)\n' "$(basename "${asset}")" "$(stat -c%s "${asset}")" >> "${GITHUB_STEP_SUMMARY}"
+          done
 
       - name: Upload Go CLI artifacts
         uses: actions/upload-artifact@v7
@@ -56,7 +58,9 @@ jobs:
           name: myflowhub-clipboardnode-go-cli-debug
           if-no-files-found: error
           retention-days: 14
-          path: dist/clipboardnode-windows-amd64.exe
+          path: |
+            dist/clipboardnode-windows-amd64.exe
+            dist/clipboardnode-bridge-windows-amd64.exe
 
   build-windows-debug:
     name: Build Windows debug
@@ -92,6 +96,12 @@ jobs:
           flutter test
           if ($LASTEXITCODE -ne 0) { throw "flutter test failed with exit code $LASTEXITCODE" }
 
+          Set-Location ..
+          $env:GOWORK = "off"
+          go build -o "app/clipboardnode-bridge.exe" ./cmd/clipboardnode-bridge
+          if ($LASTEXITCODE -ne 0) { throw "go build clipboardnode-bridge failed with exit code $LASTEXITCODE" }
+          Set-Location app
+
           flutter build windows --debug
           if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed with exit code $LASTEXITCODE" }
 
@@ -117,6 +127,7 @@ jobs:
           $packageRoot = Join-Path $PWD "dist/myflowhub-clipboardnode-windows-debug"
           New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
           Copy-Item -Path "$runnerDir/*" -Destination $packageRoot -Recurse -Force
+          Copy-Item -LiteralPath "app/clipboardnode-bridge.exe" -Destination (Join-Path $packageRoot "clipboardnode-bridge.exe") -Force
 
           $buildInfo = @(
             "repo=$env:GITHUB_REPOSITORY"
@@ -178,6 +189,10 @@ jobs:
           flutter --version
           flutter config --enable-linux-desktop
           flutter pub get
+          cd ..
+          export GOWORK=off
+          go build -o app/clipboardnode-bridge ./cmd/clipboardnode-bridge
+          cd app
           flutter build linux --debug
 
       - name: Package Linux debug app
@@ -200,6 +215,7 @@ jobs:
           package_root="dist/myflowhub-clipboardnode-linux-debug"
           mkdir -p "${package_root}"
           cp -a "${bundle_dir}/." "${package_root}/"
+          cp app/clipboardnode-bridge "${package_root}/clipboardnode-bridge"
           {
             echo "repo=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
@@ -248,6 +264,10 @@ jobs:
           flutter --version
           flutter config --enable-macos-desktop
           flutter pub get
+          cd ..
+          export GOWORK=off
+          go build -o app/clipboardnode-bridge ./cmd/clipboardnode-bridge
+          cd app
           flutter build macos --debug
 
       - name: Package macOS debug app
@@ -272,6 +292,7 @@ jobs:
             echo "platform=macos"
             echo "app_bundle=myflowhub_clipboard.app"
           } > "app/build/macos/Build/Products/Debug/build-info.txt"
+          cp app/clipboardnode-bridge "${app_dir}/Contents/MacOS/clipboardnode-bridge"
 
           ditto -c -k --sequesterRsrc --keepParent "${app_dir}" dist/myflowhub-clipboardnode-macos-debug.zip
           zip -j dist/myflowhub-clipboardnode-macos-debug.zip "app/build/macos/Build/Products/Debug/build-info.txt"
@@ -310,6 +331,34 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Build gomobile AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/build_aar.sh android/arm64,android/arm com.myflowhub.gomobile app/android/app/libs/myflowhub.aar 2>&1 | tee gomobile-build.log
+          if [[ ! -f app/android/app/libs/myflowhub.aar ]]; then
+            echo "gomobile AAR was not generated" >&2
+            exit 1
+          fi
+          printf -- '- %s (%s bytes)\n' "myflowhub.aar" "$(stat -c%s app/android/app/libs/myflowhub.aar)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload gomobile build log
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: myflowhub-clipboardnode-gomobile-build-log
+          if-no-files-found: ignore
+          retention-days: 14
+          path: gomobile-build.log
+
+      - name: Upload gomobile AAR artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-android-gomobile-aar
+          if-no-files-found: error
+          retention-days: 14
+          path: app/android/app/libs/myflowhub.aar
 
       - name: Build Flutter Android APK
         shell: bash
@@ -367,12 +416,26 @@ jobs:
 
       - name: Build Flutter iOS simulator app
         shell: bash
-        working-directory: app
         run: |
           set -euo pipefail
+          ./scripts/build_ios_xcframework.sh iossimulator app/ios/Frameworks/Nodemobile.xcframework 2>&1 | tee gomobile-ios-build.log
+          if [[ ! -d app/ios/Frameworks/Nodemobile.xcframework ]]; then
+            echo "Nodemobile.xcframework was not generated" >&2
+            exit 1
+          fi
+          cd app
           flutter --version
           flutter pub get
           flutter build ios --debug --simulator --no-codesign
+
+      - name: Upload iOS gomobile build log
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: myflowhub-clipboardnode-ios-gomobile-build-log
+          if-no-files-found: ignore
+          retention-days: 14
+          path: gomobile-ios-build.log
 
       - name: Package iOS simulator debug app
         shell: bash
@@ -525,6 +588,7 @@ jobs:
             "myflowhub-clipboardnode-ios-simulator-debug.zip"
             "myflowhub-clipboardnode-web-debug.zip"
             "clipboardnode-windows-amd64.exe"
+            "clipboardnode-bridge-windows-amd64.exe"
           )
 
           upload_args=()

@@ -22,6 +22,8 @@ type Config struct {
 	AutoWatch        bool   `json:"auto_watch"`
 	AutoApply        bool   `json:"auto_apply"`
 	HistoryRetention string `json:"history_retention,omitempty"`
+	TransferProvider string `json:"transfer_provider,omitempty"`
+	TransferRef      string `json:"transfer_ref,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -40,6 +42,8 @@ func NormalizeConfig(cfg Config) (Config, error) {
 	cfg.Topic = strings.TrimSpace(cfg.Topic)
 	cfg.DeviceLabel = strings.TrimSpace(cfg.DeviceLabel)
 	cfg.HistoryRetention = strings.TrimSpace(cfg.HistoryRetention)
+	cfg.TransferProvider = strings.TrimSpace(cfg.TransferProvider)
+	cfg.TransferRef = strings.TrimSpace(cfg.TransferRef)
 	if cfg.HistoryRetention == "" {
 		cfg.HistoryRetention = HistoryRetentionNone
 	}
@@ -57,6 +61,12 @@ func NormalizeConfig(cfg Config) (Config, error) {
 	}
 	if cfg.HistoryRetention != HistoryRetentionNone && cfg.HistoryRetention != "metadata" {
 		return Config{}, fmt.Errorf("unsupported history_retention %q", cfg.HistoryRetention)
+	}
+	if cfg.TransferProvider == "" && cfg.TransferRef != "" {
+		return Config{}, fmt.Errorf("transfer_provider is required when transfer_ref is set")
+	}
+	if cfg.TransferProvider != "" && cfg.TransferRef == "" {
+		return Config{}, fmt.Errorf("transfer_ref is required when transfer_provider is set")
 	}
 	return cfg, nil
 }

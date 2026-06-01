@@ -79,3 +79,59 @@ func TestStatusEventOmitsClipboardBody(t *testing.T) {
 		t.Fatal("status event leaked clipboard text field")
 	}
 }
+
+func TestErrorEventEncodesExplicitFalseOK(t *testing.T) {
+	encoded, err := EncodeEvent(EngineEvent{Name: EventError, OK: false, Error: "bad command"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &raw); err != nil {
+		t.Fatal(err)
+	}
+	okValue, exists := raw["ok"]
+	if !exists {
+		t.Fatal("error event omitted ok field")
+	}
+	var ok bool
+	if err := json.Unmarshal(okValue, &ok); err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("error event encoded ok=true")
+	}
+}
+
+func TestTransferEventOmitsClipboardBody(t *testing.T) {
+	data, err := json.Marshal(Transfer{
+		ID:         "transfer-1",
+		State:      "manifest_published",
+		ByteSize:   128000,
+		HashPrefix: "abcdef123456",
+		Detail:     "clipboard.transfer.v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := EncodeEvent(EngineEvent{Name: EventTransferUpdate, Data: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) == "" {
+		t.Fatal("empty event")
+	}
+	if string(encoded) == "" {
+		t.Fatal("empty event")
+	}
+	var transfer Transfer
+	var event EngineEvent
+	if err := json.Unmarshal(encoded, &event); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(event.Data, &transfer); err != nil {
+		t.Fatal(err)
+	}
+	if transfer.Detail != "clipboard.transfer.v1" || transfer.ByteSize != 128000 {
+		t.Fatalf("unexpected transfer event: %+v", transfer)
+	}
+}

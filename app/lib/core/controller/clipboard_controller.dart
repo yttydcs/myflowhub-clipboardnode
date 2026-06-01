@@ -33,6 +33,12 @@ class ClipboardController extends ChangeNotifier {
 
   Future<void> sendText(String text) => _run(() => _bridge.sendText(text));
 
+  Future<void> readClipboard() => _run(_bridge.readClipboard);
+
+  Future<void> applyPending(String eventId) {
+    return _run(() => _bridge.applyPending(eventId));
+  }
+
   Future<void> clearRecent() => _run(_bridge.clearRecent);
 
   Future<void> _run(Future<void> Function() action) async {

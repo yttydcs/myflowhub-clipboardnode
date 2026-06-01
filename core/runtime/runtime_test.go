@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -281,7 +282,7 @@ func TestRuntimeStartUpdateConfigAndResubscribe(t *testing.T) {
 	if len(bus.subscribed) != 0 {
 		t.Fatalf("subscriptions = %v", bus.subscribed)
 	}
-	if err := rt.UpdateConfig(context.Background(), Config{Enabled: true, Topic: "clipboard/dev", MaxInlineBytes: 64}); err != nil {
+	if err := rt.UpdateConfig(context.Background(), Config{Enabled: true, Topic: "clipboard/dev", MaxInlineBytes: 64, AutoWatch: true}); err != nil {
 		t.Fatalf("UpdateConfig enable returned error: %v", err)
 	}
 	if clip.watches != 1 {
@@ -301,6 +302,230 @@ func TestRuntimeStartUpdateConfigAndResubscribe(t *testing.T) {
 	}
 	if len(bus.unsubscribed) != 1 || bus.unsubscribed[0] != "clipboard/dev" {
 		t.Fatalf("unsubscriptions = %v", bus.unsubscribed)
+	}
+}
+
+func TestRuntimeEnabledWithoutAutoWatchOnlySubscribes(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			Topic:          "clipboard/dev",
+			MaxInlineBytes: 64,
+			AutoWatch:      false,
+			AutoApply:      false,
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if len(bus.subscribed) != 1 {
+		t.Fatalf("subscriptions = %v", bus.subscribed)
+	}
+	if clip.watches != 0 {
+		t.Fatalf("watch count = %d", clip.watches)
+	}
+	status := rt.Status()
+	if !status.Subscribed || status.Watching {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestRuntimeRemoteEventPendingWhenAutoApplyDisabled(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			Topic:          "clipboard/dev",
+			MaxInlineBytes: 64,
+			AutoApply:      false,
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := buildRemoteMessage(t, "evt-remote", "remote text")
+	decision, err := rt.HandleTopicBusMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleTopicBusMessage returned error: %v", err)
+	}
+	if decision.Action != ActionRemotePending {
+		t.Fatalf("action = %s", decision.Action)
+	}
+	if len(clip.writes) != 0 {
+		t.Fatalf("writes = %v", clip.writes)
+	}
+	status := rt.Status()
+	if status.PendingEventID != "evt-remote" || status.PendingSize == 0 {
+		t.Fatalf("pending status = %+v", status)
+	}
+	decision, err = rt.ApplyPending(context.Background(), "evt-remote")
+	if err != nil {
+		t.Fatalf("ApplyPending returned error: %v", err)
+	}
+	if decision.Action != ActionRemoteApplied {
+		t.Fatalf("apply action = %s", decision.Action)
+	}
+	if len(clip.writes) != 1 || clip.writes[0] != "remote text" {
+		t.Fatalf("writes after apply = %v", clip.writes)
+	}
+	if rt.Status().PendingEventID != "" {
+		t.Fatalf("pending was not cleared: %+v", rt.Status())
+	}
+}
+
+func TestRuntimePendingQueueIsBounded(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			Topic:          "clipboard/dev",
+			MaxInlineBytes: 64,
+			AutoApply:      false,
+		},
+		NodeID:           12,
+		InstanceID:       "instance-a",
+		Clipboard:        clip,
+		TopicBus:         bus,
+		RecentEventLimit: 2,
+		Now:              func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		msg := buildRemoteMessage(t, fmt.Sprintf("evt-pending-%d", i), fmt.Sprintf("remote text %d", i))
+		if _, err := rt.HandleTopicBusMessage(context.Background(), msg); err != nil {
+			t.Fatalf("HandleTopicBusMessage %d returned error: %v", i, err)
+		}
+	}
+	pending := rt.Pending()
+	if len(pending) != 2 {
+		t.Fatalf("pending len = %d, pending = %+v", len(pending), pending)
+	}
+	if _, err := rt.ApplyPending(context.Background(), "evt-pending-1"); err == nil {
+		t.Fatalf("expected evicted pending event to be missing")
+	}
+}
+
+func TestRuntimeOversizeWithoutTransferIsExplicit(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt := newTestRuntime(t, bus, clip)
+	decision, err := rt.HandleLocalText(context.Background(), clipboard.TextEvent{Text: "12345678901234567890123456789012345678901234567890123456789012345678901234567890"})
+	if err == nil {
+		t.Fatalf("expected transfer unsupported error")
+	}
+	if decision.Action != ActionTransferUnsupported {
+		t.Fatalf("action = %s", decision.Action)
+	}
+	if bus.publishCount() != 0 {
+		t.Fatalf("publish count = %d", bus.publishCount())
+	}
+}
+
+func TestRuntimeOversizeWithTransferPublishesManifestOnly(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:          true,
+			Topic:            "clipboard/dev",
+			MaxInlineBytes:   4,
+			DeviceLabel:      "test-device",
+			AutoApply:        true,
+			TransferProvider: "stream",
+			TransferRef:      "source-1",
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+		NewEventID: func() (string, error) { return "transfer-local", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := rt.HandleLocalText(context.Background(), clipboard.TextEvent{Text: "oversize"})
+	if err != nil {
+		t.Fatalf("HandleLocalText returned error: %v", err)
+	}
+	if decision.Action != ActionTransferPublished {
+		t.Fatalf("action = %s", decision.Action)
+	}
+	if bus.publishCount() != 1 {
+		t.Fatalf("publish count = %d", bus.publishCount())
+	}
+	got := bus.published[0]
+	if got.Name != ClipboardTransferEventName {
+		t.Fatalf("publish name = %s", got.Name)
+	}
+	if string(got.Payload) == "oversize" {
+		t.Fatalf("manifest payload leaked body")
+	}
+	manifest, err := ParseClipboardTransferManifestV1(got.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.References[0].Provider != "stream" || manifest.References[0].OpaqueID != "source-1" {
+		t.Fatalf("manifest refs = %+v", manifest.References)
+	}
+}
+
+func TestRuntimeRemoteTransferManifestPending(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt := newTestRuntime(t, bus, clip)
+	digest, err := InspectTextContent("remote oversize")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := NewClipboardTransferManifestV1(digest, []TransferReference{
+		{Provider: "stream", OpaqueID: "source-remote"},
+	}, BuildEventOptions{
+		OriginNode:       99,
+		OriginInstanceID: "remote-instance",
+		MaxInlineBytes:   64,
+		Now:              func() time.Time { return time.Unix(1, 0) },
+		NewEventID:       func() (string, error) { return "transfer-remote", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := MarshalClipboardTransferManifestV1(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := rt.HandleTopicBusMessage(context.Background(), TopicBusMessage{
+		Topic:   "clipboard/dev",
+		Name:    ClipboardTransferEventName,
+		Payload: payload,
+	})
+	if err != nil {
+		t.Fatalf("HandleTopicBusMessage returned error: %v", err)
+	}
+	if decision.Action != ActionTransferPending {
+		t.Fatalf("action = %s", decision.Action)
+	}
+	if len(clip.writes) != 0 {
+		t.Fatalf("writes = %v", clip.writes)
 	}
 }
 
@@ -384,6 +609,7 @@ func newTestRuntime(t *testing.T, bus *fakeTopicBus, clip *fakeClipboard) *Runti
 			Topic:          "clipboard/dev",
 			MaxInlineBytes: 64,
 			DeviceLabel:    "test-device",
+			AutoApply:      true,
 		},
 		NodeID:     12,
 		InstanceID: "instance-a",

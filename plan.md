@@ -1,431 +1,698 @@
-# Plan - ClipboardNode debug-latest all-platform builds
+# Plan - ClipboardNode Full-Platform Clipboard Sync
 
 ## Workflow Information
 
 - Repo: `D:/project/MyFlowHub3/repo/MyFlowHub-ClipboardNode`
-- Branch: `chore/debug-latest-all-platforms`
-- Base: `master` at `a954c79 fix: 修复debug-latest首跑校验问题`
-- Worktree: `D:/project/MyFlowHub3/worktrees/chore-debug-latest-all-platforms/MyFlowHub-ClipboardNode`
-- Current Stage: `3.1 - Planning confirmed`
+- Active worktree: `D:/project/MyFlowHub3/worktrees/feat-full-platform-clipboard-sync/MyFlowHub-ClipboardNode`
+- Branch: `feat/full-platform-clipboard-sync`
+- Base branch: `master`
+- Base commit: `6a8c582551287a65283e337fe173eee9c1d6749f`
+- Current stage: `4 - Change archive complete; awaiting workflow end confirmation`
+- Control document: root `plan.md`
+- Stage 3.2 entry: confirmed by user request on 2026-06-02: `请按照plan.md 实现`.
 
 ## Stage Records
 
 ### Initialization
 
-- `guide.md`: not present.
-- Participating repo: `MyFlowHub-ClipboardNode`.
-- Participating modules:
-  - GitHub Actions workflow under `.github/workflows/`.
-  - Flutter platform host directories under `app/`.
-  - README and docs archive/index entries.
-- Base branch: `master`.
-- Dedicated branch: `chore/debug-latest-all-platforms`.
-- Dedicated worktree: `D:/project/MyFlowHub3/worktrees/chore-debug-latest-all-platforms/MyFlowHub-ClipboardNode`.
-- Main repo path is control-plane only; implementation edits stay in this worktree.
+- `$m-autoflow` is active because this workflow requires staged execution, task mapping, review, and change archival.
+- `$m-docs` is active for plan routing and requirements/specs/lessons impact checks.
+- `guide.md` was read from `D:/project/MyFlowHub3/guide.md`.
+  - Worktrees must live under `D:/project/MyFlowHub3/worktrees`.
+  - Commit messages should use Chinese after any conventional prefix.
+  - PowerShell conda noise is known and unrelated to most command outcomes.
+  - MyFlowHub MCP notification is attempted only after code modification, validation, commit, or workflow closeout when connected, logged in, and write-enabled.
+- Main repo is not edited. All work must stay in the active worktree.
+- `MyFlowHub-SubProto` is a server-side behavior reference for this workflow, not a client SDK dependency.
 
 ### Stage 1 - Requirements Analysis
 
 #### Goal
 
-Extend the existing `debug-latest` automation from a Windows-only preview into an all-platform debug build workflow so each accepted `master` push compiles every supported Flutter target and refreshes the prerelease assets.
+Implement ClipboardNode as a complete engineered MyFlowHub clipboard application across native desktop, mobile, and a browser-policy-aware web mode.
 
 #### Scope
 
 Must:
 
-- keep the `debug-latest` release channel and movable tag contract;
-- compile Windows, Linux, macOS, Android debug APK, iOS simulator debug app, and Web;
-- keep `workflow_dispatch` and pull request validation without publishing unless the event is a `master` push;
-- preserve explicit native-command exit-code checks in PowerShell steps;
-- package platform outputs with names that clearly identify platform and debug channel;
-- keep Go module validation and the existing Windows CLI debug binary build independent of Flutter platform jobs;
-- update README and change archive so users know the release is all-platform.
+- Keep ClipboardNode as an independent node application.
+- Reuse existing MyFlowHub Auth, TopicBus, Stream/File-facing contracts without changing wire behavior.
+- Use TopicBus application events for small inline UTF-8 text.
+- Keep sync disabled by default.
+- Keep clipboard bodies out of logs, config, status, and default activity history.
+- Support real native desktop behavior on Windows, Linux, and macOS.
+- Support mobile manual/share/apply behavior on Android and iOS without claiming unrestricted background clipboard watch.
+- Support large-content transfer as metadata manifest plus existing transfer references, not TopicBus chunking.
+- Provide platform-aware Flutter UI, validation, CI/build scripts, and handoff-ready docs archive.
 
-Optional:
+Optional / platform-constrained:
 
-- build additional Go CLI helper binaries after non-Windows host adapters exist.
+- Web can be complete only as a browser-policy-aware mode: user-gesture clipboard read/write plus a local bridge or explicit diagnostic fallback. A hosted browser page cannot directly use the native Go MyFlowHub TCP engine or background clipboard watch.
+- Tray/autostart/store signing are release follow-ups unless explicitly added.
 
 Not doing:
 
-- no ClipboardNode runtime behavior changes;
-- no MyFlowHub protocol or subprotocol changes;
-- no signing, notarization, TestFlight, Play Store, installer, or production release channel;
-- no device pairing, room key, or encryption change.
+- No new Clipboard subprotocol.
+- No Server, Proto, SDK, SubProto, TopicBus, Stream, or File wire change.
+- No application-layer E2EE in this workflow.
+- No offline replay, remote apply ACK claim, or persistent clipboard body history by default.
 
 #### Use Cases
 
-- A tester downloads `debug-latest` assets for the platform they are using.
-- A developer opens a pull request and sees whether the Flutter shell still compiles across supported targets.
-- A `master` push refreshes the prerelease only after every required build job succeeds.
+- Desktop devices on a trusted private MyFlowHub topology sync small text over the same topic.
+- Remote events can be pending until the user applies them when `auto_apply=false`.
+- Android/iOS users can send shared/current text manually and apply received text through explicit user action.
+- Oversize content produces a clear transfer or rejection state without logging the body.
+- Reconnect restores login/subscription for future online events only.
 
 #### Functional Requirements
 
-- The workflow must fail before publish if any platform build fails.
-- Missing build outputs must be detected explicitly.
-- Linux/macOS platform host directories must exist in the Flutter app if those targets are compiled.
-- The publish job must download and validate all required assets before moving the `debug-latest` tag.
-- Release notes and step summary must list every uploaded asset.
+- Connect validates endpoint, registers or reuses local identity, logs in, then subscribes when enabled.
+- Enablement validates non-empty topic and starts only platform-allowed watch/apply paths.
+- Local outbound text validates UTF-8, non-empty body, max inline size, hash, and duplicate/loop state.
+- Remote inbound events validate topic, event name, payload version, content type, encoding, size, hash, source, duplicate ID, and loop hashes.
+- Publish success means local publish only, not remote delivery/apply.
+- Mobile must not expose unrestricted background clipboard watch.
+- UI must expose endpoint, topic, device label, max inline bytes, auto-watch, auto-apply, manual send/read/apply, pending metadata, transfer state, and safe errors.
 
 #### Non-functional Requirements
 
-- Keep CI behavior deterministic and auditable.
-- Minimize generated Flutter churn and inspect generated platform files before committing.
-- Keep package naming consistent and easy to script against.
-- Avoid logging clipboard bodies or running live sync in CI.
+- Explicit errors; no silent swallowing on critical state changes.
+- Bounded dedupe/pending/history state.
+- No unnecessary repeated full-text processing.
+- Platform adapters remain behind narrow boundaries.
+- Tests cover critical runtime and bridge behavior.
 
 #### Inputs / Outputs
 
-Inputs:
-
-- repository source at the workflow commit;
-- GitHub-hosted Windows, Ubuntu, and macOS runners;
-- Go and Flutter toolchains from the workflow;
-- Android and Apple platform tooling available on hosted runners.
-
-Outputs:
-
-- Actions artifacts for Go CLI binaries and each Flutter platform package;
-- GitHub prerelease `debug-latest` with all current debug assets on `master` pushes;
-- generated Linux/macOS Flutter host directories if required by the build;
-- README and `docs/change` archive updates.
+- Inputs: local clipboard text, share/manual text, TopicBus events, runtime config.
+- Outputs: TopicBus `clipboard.text.v1`, optional `clipboard.transfer.v1` manifests, local clipboard writes, metadata-only UI activity/status.
 
 #### Edge Cases
 
-- iOS device builds require signing, so CI must build simulator output with `--no-codesign`.
-- macOS debug apps are unsigned and are preview-only.
-- Linux desktop builds require GTK/CMake/Ninja dependencies.
-- Web output is a directory and must be archived before upload.
-- GitHub Actions manual runs on non-`master` branches must not move `debug-latest`.
+- TopicBus subscriptions are in-memory and connection-scoped.
+- TopicBus publish has no ACK and no replay.
+- `TargetID=0` is broadcast-to-children, not "send to parent".
+- Linux clipboard depends on X11/Wayland tooling availability.
+- Android/iOS clipboard access is foreground/manual/share constrained.
+- Web clipboard APIs require user gestures and cannot host the native engine by themselves.
 
 #### Acceptance Criteria
 
-- `.github/workflows/debug-latest.yml` has separate build coverage for Windows, Linux, macOS, Android, iOS simulator, Web, and Go CLI.
-- Publish depends on all platform jobs.
-- Release assets are validated by name before upload.
-- README names all available debug assets.
-- Local validations pass where the Windows host can run them; unsupported local platform builds are recorded as remote-only validation.
+- Windows/Linux/macOS native desktop targets have live engine integration and platform clipboard adapters.
+- Android APK can include a generated gomobile AAR and use the live engine path.
+- iOS build can include a generated gomobile XCFramework and use the live engine path; absent binding must be an explicit fallback, not reported as complete.
+- Web has either a browser-safe local bridge mode or an explicitly scoped diagnostic mode recorded as a platform limitation.
+- Go tests, Flutter analyze/test, native builds available locally, and CI platform builds are recorded.
+- Stage 3.3 review passes before archive.
 
 #### Risks
 
-- Full validation of Linux/macOS/iOS/Android CI behavior requires GitHub-hosted runners after push.
-- Flutter-generated Linux/macOS files may need future platform-specific customization before production distribution.
-- Debug builds are unsigned and should not be treated as production packages.
+- Full-platform means platform-appropriate behavior, not identical background clipboard automation everywhere.
+- iOS XCFramework generation requires macOS/Xcode.
+- Android AAR generation requires Android SDK/NDK and gomobile.
+- Web first-class sync needs a browser-safe bridge shape.
 
 #### Issue List
 
-- None blocking.
+- No requirements blocker for plan generation.
+- Stage 3.2 implementation, Stage 3.3 review, and Stage 4 archive are complete in this worktree.
+- User confirmation is required only before ending the workflow, merging, or cleaning up the worktree.
 
 ### Stage 2 - Architecture Design
 
 #### Overall Solution
 
-Use a multi-job GitHub Actions workflow:
+Use a shared Go engine plus platform adapters and a Flutter UI:
 
-1. `build-go-cli` validates Go and builds the existing Windows helper CLI binary.
-2. `build-windows-debug` builds and packages the Windows Flutter debug runner.
-3. `build-linux-debug` installs Linux desktop dependencies, builds, and packages the Linux bundle.
-4. `build-macos-debug` builds and packages the macOS `.app`.
-5. `build-android-debug` builds the Android debug APK.
-6. `build-ios-debug` builds the iOS simulator `.app` without code signing.
-7. `build-web-debug` builds and packages the Web output.
-8. `publish-debug-latest` runs only on `master` push, waits for all jobs, validates assets, moves the tag, updates the prerelease, and uploads all assets.
-
-This keeps platform concerns isolated while making the release gate depend on the complete build matrix.
+1. `core/myflowhub` wraps client-side MyFlowHub SDK/Auth/TopicBus behavior.
+2. `core/runtime` owns validation, dedupe, loop suppression, pending events, transfer decisions, and UI-safe state.
+3. `core/engine` wires transport, auth, config, clipboard adapter, and runtime lifecycle.
+4. Desktop Flutter uses `cmd/clipboardnode-bridge` as a local JSON stdio bridge.
+5. Android/iOS use `nodemobile` generated bindings through native platform channels.
+6. Web uses preview/diagnostic today; full web requires a local browser-safe bridge task.
 
 #### Alternatives Considered
 
-- Single matrix job:
-  - rejected because package paths, host runners, and validation commands differ significantly by platform.
-- Keep Windows-only and add manual instructions:
-  - rejected because the user explicitly wants every platform compiled by automation.
-- Production mobile builds:
-  - rejected because signing and store distribution are separate release concerns.
+- New Clipboard subprotocol: rejected.
+- Import `MyFlowHub-SubProto` into ClipboardNode: rejected; it is server/handler code.
+- Direct Dart MyFlowHub transport: deferred; Go SDK already exists and is reusable.
+- Wails-only UI: rejected because mobile must share the app layer.
 
 #### Module Responsibilities
 
-- `.github/workflows/debug-latest.yml`: all CI build, package, artifact, and release logic.
-- `app/linux`, `app/macos`: Flutter-generated desktop host projects needed for Linux/macOS build targets.
-- `README.md`: user-facing preview asset documentation.
-- `docs/change`: completed workflow archive and index.
+- `core/auth`: local node keys and signing material; no clipboard body persistence.
+- `core/myflowhub`: connect/register/login/subscribe/unsubscribe/publish and TopicBus receive.
+- `core/runtime`: event validation, sync decisions, pending apply, transfer manifest, status.
+- `core/clipboard`: adapter interfaces.
+- `platform`: Windows/Linux/macOS adapter selection.
+- `bridge`: JSON command/event contract.
+- `cmd/clipboardnode`: foreground CLI/manual send host.
+- `cmd/clipboardnode-bridge`: desktop Flutter engine bridge.
+- `nodemobile`: exported mobile Go engine API.
+- `app/android`: Kotlin platform channel, AAR loading, share intent/manual clipboard.
+- `app/ios`: Swift platform channel, XCFramework loading, manual/share/apply.
+- `app/lib`: Flutter state, controls, settings, and platform-aware UX.
 
 #### Data / Call Flow
 
-1. Checkout source.
-2. Restore/setup toolchains per runner.
-3. Run validation in the relevant job.
-4. Build each platform debug artifact.
-5. Copy or archive outputs into `dist/`.
-6. Upload each job's artifacts.
-7. On `master` push, download all artifacts, validate expected file names, update `debug-latest`, and upload assets with clobber semantics.
+- Startup: UI loads settings -> engine starts -> connect -> register/login -> subscribe -> start allowed watcher/manual controls.
+- Local publish: adapter/UI text -> runtime validation/hash/dedupe -> TopicBus publish -> metadata-only activity.
+- Remote apply: TopicBus message -> runtime validation/dedupe/source checks -> pending or clipboard write -> loop suppression hash.
+- Reconnect: transport recovery -> login -> resubscribe -> no replay claim.
+- Shutdown: stop watchers -> unsubscribe best-effort -> clear in-memory auth/session -> close transport/adapters.
 
 #### Interface Drafts
 
-- Release tag: `debug-latest`.
-- Release title: `Debug (latest)`.
-- Asset names:
-  - `myflowhub-clipboardnode-windows-debug.zip`
-  - `myflowhub-clipboardnode-linux-debug.tar.gz`
-  - `myflowhub-clipboardnode-macos-debug.zip`
-  - `myflowhub-clipboardnode-android-debug.apk`
-  - `myflowhub-clipboardnode-ios-simulator-debug.zip`
-  - `myflowhub-clipboardnode-web-debug.zip`
-  - `clipboardnode-windows-amd64.exe`
+- Topic event: `clipboard.text.v1`.
+- Transfer event: `clipboard.transfer.v1`.
+- Bridge commands: `start`, `stop`, `updateConfig`, `sendText`, `readClipboard`, `applyEvent`, `status`, `clearRecent`.
+- Mobile exports: `Start`, `Stop`, `UpdateConfig`, `SendText`, `SetClipboardText`, `ReadClipboard`, `ApplyEvent`, `Status`.
 
 #### Error Handling and Safety
 
-- Validate every expected output path before upload.
-- Use `if-no-files-found: error` for artifacts.
-- Keep publish `contents: write` scoped to the publish job.
-- Keep debug release update disabled for pull requests and non-`master` manual runs.
-- Preserve explicit `$LASTEXITCODE` checks for native PowerShell commands.
+- Invalid config blocks connect/subscribe with explicit error.
+- Invalid remote payload is dropped with metadata-only error.
+- Clipboard adapter errors do not mark events applied.
+- Missing mobile binding reports an explicit stub state.
+- Clipboard body must not appear in status, config, logs, tests, or default history.
 
 #### Performance and Testing Strategy
 
-- Use platform-specific jobs so long builds run in parallel.
-- Run Go tests once in the Go job.
-- Run Flutter `pub get`, `analyze`, and `test` in one desktop job, then platform build jobs compile their targets.
-- Validate locally on Windows with Go tests, Flutter analyze/test, Windows build, Web build, YAML parsing, and `git diff --check`.
-- Validate Linux/macOS/iOS/Android through GitHub Actions after push.
+- Hash once per event path.
+- Keep bounded dedupe and pending queues.
+- Unit test runtime validation and bridge schema.
+- Build native artifacts per platform.
+- Use CI runners for Linux/macOS/iOS where Windows local validation cannot run them.
 
 #### Extensibility Design Points
 
-- Signing/notarization can be added later as production release jobs without changing `debug-latest`.
-- Additional architecture variants can be added as new jobs/assets.
-- Future app-layer encryption or protocol behavior remains outside this CI-only workflow.
+- Payload versioning allows future encryption or richer content.
+- Transfer manifest remains application payload, not protocol extension.
+- Platform adapter boundaries allow native improvements without touching runtime validation.
+- Web bridge can be added without changing desktop/mobile bridge contracts.
 
 #### Issue List
 
-- None blocking.
+- No architecture blocker for plan confirmation.
 
-### Stage 3.1 - Planning
+## Stage 3.1 - Planning
 
-#### Project Goal and Current State
-
-Current `debug-latest` publishes only a Windows Flutter debug package and a Windows Go CLI binary. The app already has Android, iOS, Web, and Windows Flutter host directories, but lacks Linux and macOS host directories, so those must be generated before the CI can compile those targets.
-
-#### Docs Governance Routing Decision
+### Docs Governance Routing Decision
 
 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
 
-- Requirements impact: none
-- Specs impact: none
-- Related requirements: `docs/requirements/clipboard-sync.md`
-- Related specs: `docs/specs/clipboard-sync.md`
+- Canonical stable requirements: `docs/requirements/clipboard-sync.md`
+- Canonical stable specs: `docs/specs/clipboard-sync.md`
+- Workflow control: root `plan.md`
+- Completed workflow archive destination: `docs/change/YYYY-MM-DD_clipboard-full-platform-sync.md`
+- Reusable troubleshooting destination if needed: `docs/lessons/*.md`
+- Requirements impact: `none`
+- Specs impact: `none`
+- Lessons impact at plan time: `none`; likely candidates after validation are gomobile version pinning and iOS XCFramework integration.
+
+### Related Requirements / Specs / Lessons
+
+- Related requirements:
+  - `docs/requirements/clipboard-sync.md`
+- Related specs:
+  - `docs/specs/clipboard-sync.md`
+  - `D:/project/MyFlowHub3/repo/MyFlowHub-Server/docs/specs/topicbus.md`
+  - `D:/project/MyFlowHub3/repo/MyFlowHub-Server/docs/specs/stream.md`
 - Related lessons:
   - `docs/lessons/debug-latest-ci-native-exit-flutter-material.md`
   - `docs/lessons/flutter-windows-sdk-shared-bat-git.md`
-- Stable product truth is unchanged because this workflow affects distribution automation only.
-- Stable protocol/application architecture is unchanged because no runtime or protocol contract changes are planned.
-- Active workflow control: root `plan.md`.
-- Completed workflow archive: `docs/change/2026-06-01_debug-latest-all-platforms.md`.
-- Lessons update: not planned unless validation exposes a reusable CI/toolchain failure mode.
 
-#### Related Requirements / Specs / Lessons
+### Cross-repo Reuse Decisions
 
-- Requirements: [docs/requirements/clipboard-sync.md](docs/requirements/clipboard-sync.md)
-- Specs: [docs/specs/clipboard-sync.md](docs/specs/clipboard-sync.md)
-- Lessons: [docs/lessons/debug-latest-ci-native-exit-flutter-material.md](docs/lessons/debug-latest-ci-native-exit-flutter-material.md), [docs/lessons/flutter-windows-sdk-shared-bat-git.md](docs/lessons/flutter-windows-sdk-shared-bat-git.md)
+- Reuse `MyFlowHub-SDK/await.Client` and transport patterns for client send/send-and-await/unmatched-frame handling.
+- Reuse `MyFlowHub-Proto` TopicBus/Auth DTOs and constants.
+- Reuse `MyFlowHub-MetricsNode` patterns for runtime lifecycle, auth snapshot/key persistence, reconnect/resubscribe, and gomobile singleton bridge.
+- Use `MyFlowHub-Server/docs/specs/topicbus.md` as the TopicBus behavior truth.
+- Use `MyFlowHub-SubProto` only to understand server-side handler behavior: exact topic matching, in-memory subscriptions, no ACK, no replay, no echo to publisher.
+- Do not edit reference repos unless Stage 3.1 is reopened with additional worktrees.
 
-#### Executable Task List
+### Worktree State Snapshot Before Stage 3.2 Completion
 
-- `CI-8`: Generate and inspect missing Flutter Linux/macOS host projects.
-- `CI-9`: Expand `debug-latest` workflow to build and publish all platform debug artifacts.
-- `CI-10`: Update README and change archive/index for all-platform debug previews.
-- `CI-11`: Run local validation, perform mandatory code review, commit, push, and inspect remote Actions.
+This subsection is retained as the planning-time snapshot. The authoritative current state is recorded in the Stage 3.2 implementation summary, Stage 3.3 review, and Stage 4 archive below.
 
-#### Task Details
+Current uncommitted implementation already includes:
 
-##### CI-8 - Flutter Linux/macOS host projects
+- `CORE-1`: mostly implemented.
+- `CORE-2`: mostly implemented.
+- `DESK-1`: implemented for local engine/CLI path; live two-node smoke still pending.
+- `BRIDGE-1`: implemented for desktop JSON bridge.
+- `DESK-2` / `DESK-3`: command-based Linux/macOS adapters implemented; hosted validation still required.
+- `UI-1`: implemented enough for live controls, pending metadata, transfer state, and mobile/manual operations; final UX validation pending.
+- `MOB-1`: in progress. `nodemobile`, Android channel, share/manual path, pinned AAR scripts, and CI-required AAR generation exist; Android live validation still pending.
+- `MOB-2`: in progress. iOS now has XCFramework build scripts and an optional Swift binding path; macOS CI validation still pending.
+- `WEB-1`: in progress. `clipboardnode-bridge` now has an opt-in localhost HTTP/SSE bridge and Flutter Web can use it with explicit dart-defines.
+- `TRANSFER-1`: partial. Manifest and oversize decisions exist; no body chunking; transfer remains opaque reference skeleton.
+- `QA-1`: pending final validation, Stage 3.3 review, and archive.
 
-- Owner: main agent
-- Worktree: `D:/project/MyFlowHub3/worktrees/chore-debug-latest-all-platforms/MyFlowHub-ClipboardNode`
-- Plan Path: `plan.md`
-- Goal: add the missing Flutter desktop platform shells required by CI builds.
-- Files / Modules: `app/linux`, `app/macos`, `app/.metadata`
-- Write Set: generated Flutter host files only.
+Validation already observed in this worktree before this plan refresh:
+
+- `GOWORK=off go test ./... -count=1`: passed.
+- `go build ./cmd/clipboardnode`: passed.
+- `go build ./cmd/clipboardnode-bridge`: passed.
+- `flutter analyze`: passed.
+- `flutter test`: passed.
+- `flutter build windows --debug`: passed.
+- `flutter build apk --debug`: passed before Android AAR became CI-required; rerun required.
+- `git diff --check`: passed.
+
+These validations were rerun during Stage 3.2 and Stage 3.3; see the validation evidence below for final local results.
+
+### Executable Task List
+
+- `CORE-1`: Live MyFlowHub SDK/Auth/TopicBus adapter.
+- `CORE-2`: Runtime lifecycle, config, reconnect/resubscribe, pending apply, diagnostics.
+- `DESK-1`: Windows live engine and clipboard sync path.
+- `BRIDGE-1`: Desktop JSON process bridge.
+- `UI-1`: Flutter live UI, settings, privacy, pending/apply/transfer states.
+- `DESK-2`: Linux clipboard adapter and validation.
+- `DESK-3`: macOS clipboard adapter and validation.
+- `MOB-1`: Android gomobile AAR integration and manual/share/apply validation.
+- `MOB-2`: iOS gomobile XCFramework integration and manual/share/apply validation.
+- `WEB-1`: Browser-policy-aware web mode.
+- `TRANSFER-1`: Large-content transfer manifest and Stream/File reference skeleton.
+- `QA-1`: Cross-platform validation, Stage 3.3 review, docs archive.
+
+### Task Details
+
+Task detail status values below are retained from the executable plan and may describe the state before final Stage 3.2 completion. The authoritative completion mapping is the Stage 3.2 implementation summary below.
+
+#### CORE-1 - Live MyFlowHub SDK/Auth/TopicBus Adapter
+
+- Status: mostly implemented; final review pending.
+- Owner: main agent.
+- Worktree: `D:/project/MyFlowHub3/worktrees/feat-full-platform-clipboard-sync/MyFlowHub-ClipboardNode`
+- Plan path: `plan.md`
+- Goal: connect ClipboardNode to MyFlowHub as a real client node.
+- Files / modules:
+  - `core/auth/**`
+  - `core/myflowhub/**`
+  - `go.mod`
+  - `go.sum`
 - Acceptance:
-  - `flutter create --platforms=linux,macos .` succeeds in `app/`;
-  - generated diffs are limited to Linux/macOS host scaffolding and Flutter metadata;
-  - no application UI/runtime code is changed by generation.
-- Test Points:
-  - inspect `git status` and `git diff --stat`;
-  - later `flutter build linux`/`flutter build macos` in CI.
-- Rollback: remove generated `app/linux`, `app/macos`, and the corresponding `.metadata` entries.
+  - Connect/register/login/subscribe/unsubscribe/publish/receive/close are wired through existing SDK/Proto behavior.
+  - TopicBus publish targets the authenticated parent Hub, not `TargetID=0`.
+  - Clipboard body is not logged.
+- Test points:
+  - `go test ./... -count=1`
+  - auth key validation tests
+  - fake transport/TopicBus tests where available
+- Rollback:
+  - remove `core/auth`, `core/myflowhub`, and restore runtime fake transport wiring.
 
-##### CI-9 - All-platform debug-latest workflow
+#### CORE-2 - Runtime Lifecycle, Config, Pending Apply, Diagnostics
 
-- Owner: main agent
-- Worktree: same
-- Plan Path: `plan.md`
-- Goal: compile every supported debug target and publish all assets only after every job succeeds.
-- Files / Modules: `.github/workflows/debug-latest.yml`
-- Write Set: `.github/workflows/debug-latest.yml`
+- Status: mostly implemented; final review pending.
+- Owner: main agent.
+- Goal: make shared runtime own safe sync lifecycle and UI-safe state.
+- Files / modules:
+  - `core/runtime/**`
+  - `core/engine/**`
+  - `core/configstore/**`
+  - `bridge/contract.go`
 - Acceptance:
-  - jobs cover Go CLI, Windows, Linux, macOS, Android, iOS simulator, and Web;
-  - publish job needs every build job;
-  - missing required assets fail the publish job;
-  - release notes list all assets.
-- Test Points:
-  - YAML parse;
-  - local inspection;
-  - remote GitHub Actions run after push.
-- Rollback: restore previous Windows-only workflow.
+  - `enabled=false` default is preserved.
+  - `UpdateConfig` toggles enable/topic/watch/apply safely.
+  - Pending remote events are bounded and can be explicitly applied.
+  - Status/activity never includes clipboard body.
+  - Disconnect clears in-memory login/session/subscription/watch state.
+- Test points:
+  - disabled no-op
+  - invalid endpoint/topic
+  - hash mismatch
+  - duplicate/local-origin/loop ignore
+  - oversize rejection
+  - pending apply
+  - no body leakage
+- Rollback:
+  - revert runtime lifecycle extensions while preserving core payload validation.
 
-##### CI-10 - README and change archive
+#### DESK-1 - Windows Live Desktop Path
 
-- Owner: main agent
-- Worktree: same
-- Plan Path: `plan.md`
-- Goal: document all-platform preview assets and archive the workflow.
-- Files / Modules: `README.md`, `docs/change/`, `docs/change/README.md`
-- Write Set:
+- Status: implemented; two-node live smoke pending.
+- Owner: main agent.
+- Goal: make Windows the first fully runnable native desktop target.
+- Files / modules:
+  - `cmd/clipboardnode/**`
+  - `platform/clipboard_windows.go`
+  - `windows/**` if adapter changes are required
   - `README.md`
-  - `docs/change/2026-06-01_debug-latest-all-platforms.md`
-  - `docs/change/README.md`
 - Acceptance:
-  - README describes all debug assets and the master-only publish rule;
-  - archive records requirements/specs impact, task mapping, validation, and rollback.
-- Test Points:
-  - `git diff --check`;
-  - markdown link/path inspection.
-- Rollback: revert README and archive/index changes.
+  - CLI/manual send and auto-watch can use the live engine.
+  - Two local/private Hub-connected Windows instances can publish/receive/apply text and suppress loops.
+  - Errors are UI/log safe.
+- Test points:
+  - Go tests
+  - `go build ./cmd/clipboardnode`
+  - manual two-node smoke when Hub is available
+- Rollback:
+  - return Windows CLI to non-live guard/fallback behavior.
 
-##### CI-11 - Validation, review, push, and remote verification
+#### BRIDGE-1 - Desktop JSON Process Bridge
 
-- Owner: main agent
-- Worktree: same
-- Plan Path: `plan.md`
-- Goal: verify local buildable targets, perform Stage 3.3 review, and use GitHub Actions for remote-only platforms.
-- Files / Modules: changed files only.
-- Write Set: none unless validation exposes a planned issue.
+- Status: implemented; final integration review pending.
+- Owner: main agent.
+- Goal: let Flutter desktop operate the live Go engine through a narrow process bridge.
+- Files / modules:
+  - `bridge/**`
+  - `cmd/clipboardnode-bridge/**`
+  - `app/lib/core/bridge/live_engine_bridge.dart`
+  - desktop packaging in `.github/workflows/debug-latest.yml`
 - Acceptance:
-  - local Go and Flutter validations pass where supported on Windows;
-  - Stage 3.3 checklist passes;
-  - commit is pushed to `origin`;
-  - remote run is inspected and result is reported.
-- Test Points:
-  - `GOWORK=off go test ./... -count=1`;
-  - `flutter analyze`;
-  - `flutter test`;
-  - `flutter build windows --debug`;
-  - `flutter build web`;
-  - YAML parse;
-  - `git diff --check`;
-  - `gh run watch` when available.
-- Rollback: fix forward if validation exposes CI defects, or revert the branch before merging.
+  - Desktop app launches or finds the bridge helper.
+  - Commands have deterministic success/error responses.
+  - Engine emits status/activity/decision events without body leakage.
+  - Shutdown is deterministic.
+- Test points:
+  - Go bridge contract tests
+  - Flutter tests
+  - `go build ./cmd/clipboardnode-bridge`
+  - `flutter build windows --debug`
+- Rollback:
+  - select `PreviewEngineBridge` for desktop and remove bridge helper packaging.
 
-#### Dependencies
+#### UI-1 - Flutter Live UI and Privacy Controls
 
-- GitHub hosted runners for Windows, Ubuntu, and macOS.
-- Flutter `3.41.9` stable and Dart SDK satisfying `app/pubspec.yaml`.
+- Status: mostly implemented; final UX/validation pass pending.
+- Owner: main agent.
+- Goal: provide platform-aware live controls instead of preview-only UI.
+- Files / modules:
+  - `app/lib/**`
+  - `app/test/**`
+  - `bridge/contract.go`
+- Acceptance:
+  - UI covers endpoint, topic, device label, max inline bytes, auto-watch, auto-apply, manual send/read/apply, pending activity, transfer state, errors, and clear recent.
+  - Mobile controls do not imply background watch.
+  - Activity is metadata-only.
+- Test points:
+  - `flutter analyze`
+  - `flutter test`
+  - manual desktop/mobile smoke
+- Rollback:
+  - restore preview controller selection while keeping stable DTOs.
+
+#### DESK-2 - Linux Clipboard Adapter and Validation
+
+- Status: implemented in command-adapter form; hosted/manual validation pending.
+- Owner: main agent or delegated agent after confirmation.
+- Goal: support Linux text read/write/watch with explicit unsupported-state reporting.
+- Files / modules:
+  - `platform/clipboard_unix.go`
+  - `app/linux/**`
+  - `.github/workflows/debug-latest.yml`
+  - `README.md`
+- Acceptance:
+  - Detects Wayland/X11 command availability.
+  - Uses `wl-copy`/`wl-paste`, `xclip`, or `xsel` without machine-specific paths.
+  - Missing tooling returns explicit unsupported errors.
+  - Linux Flutter debug build packages the bridge helper.
+- Test points:
+  - Go tests
+  - Linux CI build
+  - manual Linux smoke where display server is available
+- Rollback:
+  - mark Linux live adapter unsupported while keeping Flutter shell buildable.
+
+#### DESK-3 - macOS Clipboard Adapter and Validation
+
+- Status: implemented in command-adapter form; hosted/manual validation pending.
+- Owner: main agent or delegated agent after confirmation.
+- Goal: support macOS text read/write/watch with explicit errors.
+- Files / modules:
+  - `platform/clipboard_unix.go`
+  - `app/macos/**`
+  - `.github/workflows/debug-latest.yml`
+  - `README.md`
+- Acceptance:
+  - Uses `pbpaste`/`pbcopy` safely.
+  - Watch loop does not produce avoidable repeated processing.
+  - macOS Flutter debug build packages the bridge helper.
+- Test points:
+  - Go tests
+  - macOS CI build
+  - manual macOS smoke if available
+- Rollback:
+  - mark macOS live adapter unsupported while keeping Flutter shell buildable.
+
+#### MOB-1 - Android Gomobile AAR and Manual/Share/Apply Flow
+
+- Status: in progress; must finish before Stage 3.3.
+- Owner: main agent or delegated agent after confirmation.
+- Goal: make Android a true live mobile target when the generated AAR is packaged.
+- Files / modules:
+  - `nodemobile/**`
+  - `scripts/build_aar.ps1`
+  - `scripts/build_aar.sh`
+  - `app/android/**`
+  - `app/lib/core/bridge/mobile_engine_bridge.dart`
+  - `.github/workflows/debug-latest.yml`
+- Required remaining work:
+  - Pin `golang.org/x/mobile/cmd/gomobile` to the module version used by `go.mod`. Done in `scripts/build_aar.ps1` and `scripts/build_aar.sh`.
+  - Verify generated AAR package/class names against `GoNodeBridge.resolveClass`.
+  - Make CI artifact/log clearly distinguish "APK built with live AAR" from "APK built with stub". Done by making CI AAR generation required and uploading the AAR artifact.
+  - Run or record Android AAR validation.
+  - Decide whether `ACTION_SEND` should only preload manual clipboard state or trigger an explicit send action; current safe default is preload/manual send.
+- Acceptance:
+  - `Start`, `UpdateConfig`, `Stop`, `SendText`, `ReadClipboard`, `ApplyEvent`, `Status`, and share text preloading work through the AAR path.
+  - APK can build with generated AAR and use live engine.
+  - APK can still build with explicit stub only as fallback, never as proof of full Android completion.
+  - No unrestricted background clipboard watch is claimed.
+- Test points:
+  - `go test ./... -count=1`
+  - `scripts/build_aar.*`
+  - `flutter build apk --debug`
+  - emulator/device smoke if available
+- Rollback:
+  - remove AAR integration and keep Android as explicit preview/stub.
+
+#### MOB-2 - iOS Gomobile XCFramework and Manual/Share/Apply Flow
+
+- Status: in progress; `AppDelegate.swift` now delegates to a Swift channel that uses `Nodemobile.xcframework` when present and explicit stub fallback when absent.
+- Owner: main agent or delegated agent after confirmation.
+- Goal: make iOS a true live mobile target when the generated XCFramework is packaged.
+- Files / modules:
+  - `nodemobile/**`
+  - new `scripts/build_ios_xcframework.sh`
+  - optional `scripts/build_ios_xcframework.ps1` that fails clearly on non-macOS
+  - `app/ios/**`
+  - `app/lib/core/bridge/mobile_engine_bridge.dart`
+  - `.github/workflows/debug-latest.yml`
+  - `.gitignore`
+- Required remaining work:
+  - Add iOS XCFramework build script using `gomobile bind -target ios`. Done via `scripts/build_ios_xcframework.sh`.
+  - Prefer output path `app/ios/Frameworks/Nodemobile.xcframework`. Done.
+  - Ignore generated XCFramework artifacts. Done.
+  - Add Swift bridge that calls generated symbols when `canImport(Nodemobile)` is true. Done in `app/ios/Runner/MobileEngineChannel.swift`.
+  - Preserve explicit stub fallback when the framework is absent. Done.
+  - Add Xcode search paths without making absent generated framework break normal stub builds. Initial xcconfig path added; build validation pending.
+  - Validate module name and Swift-visible symbol names on macOS.
+- Acceptance:
+  - iOS simulator/device build can use live gomobile binding when the XCFramework exists.
+  - Manual send/share/apply path works through the same `nodemobile` engine API.
+  - Without framework, app reports "binding required" honestly.
+  - No desktop-equivalent background clipboard watch is claimed.
+- Test points:
+  - macOS hosted `gomobile bind` / `flutter build ios --simulator --debug --no-codesign`
+  - manual simulator/device smoke if available
+  - `flutter test`
+- Rollback:
+  - remove XCFramework integration and keep iOS explicit stub state.
+
+#### WEB-1 - Browser-policy-aware Web Mode
+
+- Status: in progress.
+- Owner: main agent.
+- Goal: define and implement the strongest safe web behavior without pretending a browser has native clipboard/background TCP access.
+- Files / modules:
+  - `cmd/clipboardnode-bridge/**` if adding local WebSocket/HTTP bridge mode
+  - `bridge/**`
+  - `app/lib/core/bridge/**`
+  - `app/web/**` if host changes are needed
+  - `README.md`
+- Preferred approach:
+  - Add optional local bridge mode, for example `clipboardnode-bridge --web-listen 127.0.0.1:<port>`. Done.
+  - Flutter Web connects only to localhost by explicit user configuration. Done with dart-defines.
+  - Browser clipboard read/write remains user-gesture manual. Done by routing through explicit commands only.
+  - Hosted web without local bridge remains diagnostic/preview with explicit status. Done.
+- Acceptance:
+  - Web target no longer silently behaves like native preview when user expects live mode.
+  - Browser limitations are surfaced in UI and docs.
+  - No insecure remote bridge default is introduced.
+- Test points:
+  - bridge tests for web transport if added
+  - `flutter build web`
+  - manual browser smoke with local bridge if implemented
+- Rollback:
+  - keep web diagnostic-only and document it as outside native full-platform sync.
+
+#### TRANSFER-1 - Transfer Manifest and Existing Transfer Reference Skeleton
+
+- Status: partial; final tests/docs pending.
+- Owner: main agent.
+- Goal: handle oversize or unsupported content without TopicBus body chunking.
+- Files / modules:
+  - `core/runtime/**`
+  - `bridge/contract.go`
+  - `app/lib/**`
+  - `README.md`
+- Acceptance:
+  - Oversize inline text rejects when no transfer provider/reference is configured.
+  - `clipboard.transfer.v1` carries only metadata and opaque existing-protocol reference.
+  - UI shows transfer status without body leakage.
+- Test points:
+  - oversize rejection
+  - manifest decision
+  - no body leakage
+- Rollback:
+  - disable transfer manifest and retain oversize rejection only.
+
+#### QA-1 - Validation, Code Review, Archive, Release Readiness
+
+- Status: pending.
+- Owner: main agent.
+- Goal: prove the feature, complete Stage 3.3, and archive through `$m-docs`.
+- Files / modules:
+  - `.github/workflows/**`
+  - `README.md`
+  - `docs/change/**`
+  - `docs/lessons/**` if reusable lessons emerge
+  - `plan.md`
+- Acceptance:
+  - Stage 3.3 checklist passes.
+  - Local and CI validations are recorded.
+  - iOS/Android native binding gaps are resolved or explicitly scoped as blockers before completion.
+  - Change archive maps every changed file group to task IDs.
+  - Lessons are created only for reusable issues worth future lookup.
+- Required validation:
+  - `$env:GOWORK='off'; go test ./... -count=1`
+  - `go build -o build/clipboardnode.exe ./cmd/clipboardnode`
+  - `go build -o build/clipboardnode-bridge.exe ./cmd/clipboardnode-bridge`
+  - `flutter analyze`
+  - `flutter test`
+  - `flutter build windows --debug`
+  - `flutter build apk --debug`
+  - `flutter build web --debug`
+  - Android AAR build when Android SDK/NDK/gomobile are available
+  - CI Linux/macOS/iOS simulator builds
+  - `git diff --check`
+  - live two-node MyFlowHub smoke when a Hub is available
+- Rollback:
+  - disable live bridge by platform selection or revert the feature branch task changes.
+
+### Dependencies
+
+- Local/private MyFlowHub Hub for live smoke tests.
 - Go `1.25.x`.
-- Android/iOS platform toolchains from hosted runners.
+- Flutter SDK selected for this repo.
+- Android SDK/NDK/gomobile for AAR.
+- macOS/Xcode/gomobile for iOS XCFramework and iOS simulator validation.
+- GitHub hosted runners for Linux/macOS/iOS build proof.
 
-#### Risks and Notes
+### Risks and Notes
 
-- Local Windows cannot compile Linux, macOS, iOS, or Android in the same way as hosted runners; remote CI is required for full proof.
-- iOS simulator and macOS outputs are unsigned debug previews.
-- The existing lesson on PowerShell native exits remains mandatory; do not remove `$LASTEXITCODE` checks.
+- Android/iOS completion is binding-and-validation sensitive; a stub build is not sufficient.
+- Web completion needs a local bridge or must stay explicitly diagnostic.
+- Generated AAR/XCFramework artifacts should stay ignored unless a release policy decides otherwise.
+- Do not change MyFlowHub protocol semantics to force ClipboardNode behavior.
+- Do not log clipboard body while debugging mobile bindings.
 
-#### Parallelism Assessment
+### Parallelism Assessment
 
-- CI jobs are designed to run in parallel in GitHub Actions.
-- No sub-agent dispatch is used locally because the write set is small and the workflow/release contract needs integrated review.
+Stage 3.2 parallelism assessment:
 
-#### Issue List
+- `MOB-1` and `MOB-2` can split after shared `nodemobile` API is stable.
+- `WEB-1` can split if it only touches web bridge files and does not alter mobile bridge DTOs.
+- `DESK-2` / `DESK-3` validation can run independently on hosted runners.
 
-- None blocking.
+The main agent must retain integration, conflict resolution, final review, and archive ownership.
 
-阻塞：否
-进入 3.2
+No sub-agent dispatch is used in this implementation pass because no reliable sub-agent dispatch tool is exposed in the current host environment, and the remaining tasks converge through shared CI, README, and plan updates.
 
-### Stage 3.2 - Implementation
+### Issue List
 
-#### Parallelism Assessment
-
-- GitHub Actions build work is split into parallel jobs by platform.
-- Local implementation stayed single-agent because the release contract, asset names, and docs need one integrated review.
-- No sub-agent dispatch was used.
-
-#### File-level Change Summary
-
-- `.github/workflows/debug-latest.yml`
-  - Adds `build-go-cli`, `build-linux-debug`, `build-macos-debug`, `build-android-debug`, `build-ios-debug`, and `build-web-debug`.
-  - Keeps Windows validation with explicit `$LASTEXITCODE` checks.
-  - Makes `publish-debug-latest` depend on every build job and validate every expected asset before upload.
-- `app/.metadata`
-  - Adds Linux and macOS to tracked Flutter platforms while preserving existing Android/iOS/Web/Windows entries.
-- `app/linux/**`
-  - Adds Flutter-generated Linux desktop host project.
-- `app/macos/**`
-  - Adds Flutter-generated macOS desktop host project.
-- `README.md`
-  - Documents all platform debug assets and clarifies unsigned preview status.
-- `docs/change/2026-06-01_debug-latest-all-platforms.md`
-  - Archives this workflow, requirements/specs impact, task mapping, validation, and rollback.
-- `docs/change/README.md`
-  - Indexes the new change archive.
-
-#### Task Results
-
-- `CI-8`: completed.
-  - `flutter create --platforms=linux,macos .` generated host projects.
-  - IDE metadata generated by Flutter was removed because it is ignored and unrelated.
-  - `.metadata` was corrected to include all existing platforms plus Linux/macOS.
-- `CI-9`: completed.
-  - Workflow now builds Go CLI, Windows, Linux, macOS, Android, iOS simulator, and Web.
-  - Publish validates seven required assets before release upload.
-- `CI-10`: completed.
-  - README and `docs/change` index/archive updated.
-- `CI-11`: local validation completed; remote validation pending after push.
-
-### Stage 3.3 - Code Review
-
-- 需求覆盖: 通过。The workflow compiles all requested platforms and keeps publish limited to successful `master` pushes.
-- 架构合理性: 通过。Platform-specific jobs avoid path/runner coupling; publish depends on all required jobs.
-- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）: 通过。Go tests run once; Flutter platform builds run in parallel; packaging copies only build outputs.
-- 可读性与一致性: 通过。Flutter asset names share one `myflowhub-clipboardnode-<platform>-debug` pattern and release validation centralizes expected names.
-- 可扩展性与配置化: 通过。Flutter version is centralized in workflow env; future signing/release jobs can be added without changing debug channel.
-- 稳定性与安全: 通过。Publish permission remains scoped to publish job; unsigned preview status is documented; no clipboard runtime or protocol code changed.
-- 测试覆盖情况: 通过 locally with remote-only caveat:
-  - `GOWORK=off go test ./... -count=1`: passed.
-  - Go Windows CLI cross-compile: passed. Non-Windows CLI assets are intentionally not published because the CLI still uses the Windows host adapter.
-  - YAML structure parse: passed.
-  - `actions/setup-java` latest tag check: `v5.2.0`.
-  - `flutter analyze`: passed.
-  - `flutter test`: passed, 5 tests.
-  - `flutter build windows --debug`: passed.
-  - `flutter build web --debug`: passed.
-  - `git diff --check`: passed.
-  - `actionlint`: not installed locally.
-  - Remote workflow run `26730886050`: passed on `workflow_dispatch`.
-    - Build Go CLI: passed.
-    - Build Windows debug: passed.
-    - Build Linux debug: passed.
-    - Build macOS debug: passed.
-    - Build Android debug: passed.
-    - Build iOS simulator debug: passed.
-    - Build Web debug: passed.
-    - Publish debug-latest: skipped because this was not a `master` push, as intended.
-- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）: 通过。No sub-agent dispatch; all file changes map to `CI-8` through `CI-11`.
+- Android native live path is implemented with pinned gomobile AAR scripts, CI-required AAR generation, local AAR class verification, and local debug APK build with live AAR.
+- iOS native live path is implemented with pinned gomobile XCFramework scripts, Swift optional binding channel, explicit stub fallback, and CI-required macOS simulator binding/build. Local Windows validation cannot prove Swift module symbols; hosted macOS CI remains the authoritative proof.
+- Web first-class live sync is implemented as an explicit localhost HTTP/SSE bridge mode plus dart-define opt-in. Hosted Web without the bridge remains diagnostic by explicit scope.
 
 阻塞：否
-进入 Stage 4 / push validation
+进入 3.3
 
-### Stage 4 - Change Archive
+## Stage 3.2 - Implementation Summary
 
-使用 `$m-docs` 校验变更归档、requirements/specs 影响和 lessons 入口。
+Stage 3.2 implementation is complete in the active worktree. All code and documentation changes are mapped to the confirmed task IDs:
 
-- Change archive: [docs/change/2026-06-01_debug-latest-all-platforms.md](docs/change/2026-06-01_debug-latest-all-platforms.md)
-- Requirements impact: none
-- Specs impact: none
-- Lessons impact: none
-- Related requirements: [docs/requirements/clipboard-sync.md](docs/requirements/clipboard-sync.md)
-- Related specs: [docs/specs/clipboard-sync.md](docs/specs/clipboard-sync.md)
+- `CORE-1`: added live MyFlowHub SDK/Auth/TopicBus integration in `core/auth/**`, `core/myflowhub/**`, `core/engine/**`, and `go.mod` / `go.sum`.
+- `CORE-2`: expanded `core/runtime/**` with safe defaults, config validation, lifecycle toggles, pending apply, reconnect/resubscribe, bounded dedupe, transfer decisions, and metadata-only status.
+- `DESK-1`, `DESK-2`, `DESK-3`: added native desktop clipboard adapter paths under `platform/**`, CLI/manual send host updates, and desktop bridge packaging in CI.
+- `BRIDGE-1`: added JSON command/event bridge and localhost Web bridge host in `bridge/**` and `cmd/clipboardnode-bridge/**`; command responses now return synchronous success/error status and error events encode explicit `ok:false`.
+- `UI-1`: replaced preview-only Flutter flow with platform-aware bridge factory, live/mobile/web bridges, settings, manual send/read/apply controls, pending metadata, transfer status, and safe errors under `app/lib/**`.
+- `MOB-1`: added `nodemobile/**`, pinned Android AAR build scripts, Kotlin platform channel, share-intent preloading/manual send path, CI-required AAR build, and Android minSdk 26 alignment for gomobile AAR merge.
+- `MOB-2`: added pinned iOS XCFramework scripts, Swift optional binding channel with `canImport(Nodemobile)`, explicit stub fallback when the generated framework is absent, Xcode project wiring, and CI-required macOS simulator binding/build.
+- `WEB-1`: added browser-policy-aware localhost bridge mode using `--web-listen` and `--web-token`, loopback-only validation, CORS/token checks, SSE events, and Flutter Web dart-define opt-in.
+- `TRANSFER-1`: implemented metadata-only `clipboard.transfer.v1` manifest decisions, oversize rejection when no transfer reference is configured, UI transfer status, and tests that assert manifest/status do not leak clipboard bodies.
+- `QA-1`: completed local validation, Stage 3.3 review, docs/change archive, and reusable lessons.
+
+### Stage 3.2 Validation Evidence
+
+Local validation completed on Windows:
+
+- `$env:GOWORK='off'; go test ./... -count=1`: passed.
+- `go build -o build\clipboardnode.exe .\cmd\clipboardnode`: passed.
+- `go build -o build\clipboardnode-bridge.exe .\cmd\clipboardnode-bridge`: passed.
+- Android gomobile AAR build to `app/android/app/libs/myflowhub.aar`: passed locally.
+- AAR class check: `com/myflowhub/gomobile/nodemobile/Nodemobile.class` exists and matches the Kotlin resolver.
+- `flutter analyze`: passed.
+- `flutter test`: passed, 5 tests.
+- `flutter build web --debug --dart-define=CLIPBOARDNODE_WEB_BRIDGE=http://127.0.0.1:18291 --dart-define=CLIPBOARDNODE_WEB_TOKEN=testtoken`: passed.
+- `flutter build windows --debug`: passed.
+- `flutter build apk --debug`: passed after the gomobile minSdk 26 alignment.
+- `.\scripts\validate.ps1 -FlutterRoot D:\project\MyFlowHub3\.tmp\tools\flutter-sdk-3.41.9\flutter`: passed with Flutter 3.41.9; the script now fails explicitly when Flutter is missing unless `-SkipFlutter` is passed.
+- Android default all-ABI AAR build: passed, including `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86` native libraries.
+- Local two-node MyFlowHub smoke: passed via `.\scripts\smoke_localhub_two_nodes.ps1 -ServerRoot D:\project\MyFlowHub3\repo\MyFlowHub-Server`; node A and node B logged in as node IDs `2` and `3`, both subscribed to the same topic, node A `send_text` returned `local_published`, and node B status changed to `remote_pending` with matching event ID, size `44`, and hash prefix. Smoke used `auto_watch=false` and `auto_apply=false` to avoid implicit system clipboard reads/writes.
+- Remote Hub smoke attempt against `47.111.165.7:9000`: reached the Hub and Web bridge health checks passed, but both temporary nodes stopped at `authenticate myflowhub node: pending approval`; current MCP identity also cannot approve because login returns `invalid signature`.
+- `git diff --check`: passed with CRLF warnings only.
+- `git status --short --ignored`: generated AAR/build/cache directories remain ignored.
+
+External or hosted validation still required after this worktree is pushed:
+
+- GitHub Actions Linux/macOS/iOS jobs must prove hosted desktop and iOS simulator builds.
+- iOS gomobile Swift module/symbol names require macOS/Xcode proof.
+- Current feature branch has no upstream and no GitHub Actions run yet; existing `debug-latest` release artifacts are from `master` commit `6a8c582551287a65283e337fe173eee9c1d6749f`, so they do not prove this worktree's new changes.
+
+## Stage 3.3 - Code Review
+
+Stage 3.3 review result: passed.
+
+- 需求覆盖: 通过. The implementation keeps ClipboardNode independent, uses existing MyFlowHub Auth/TopicBus contracts, preserves `enabled=false`, avoids protocol wire changes, supports native desktop, manual/share/apply mobile, and Web localhost bridge mode.
+- 架构合理性: 通过. Shared runtime/engine logic remains in Go core packages, platform clipboard access stays behind adapters or native channels, and Flutter selects desktop/mobile/web bridges without changing MyFlowHub protocols.
+- 性能风险: 通过. Runtime keeps bounded recent/pending state, hashes once per event path, does not add TopicBus chunking, and uses loopback SSE/HTTP only for explicit Web bridge mode.
+- 可读性与一致性: 通过. Naming follows existing `core/runtime`, `bridge`, `nodemobile`, and Flutter bridge patterns; comments are limited to non-obvious generated-binding and minSdk decisions.
+- 可扩展性与配置化: 通过. Transfer references are configured as opaque provider/ref metadata, Web bridge endpoint/token are dart-defines, and mobile bindings remain optional generated artifacts with explicit fallback.
+- 稳定性与安全: 通过. Config validation fails explicitly, Web bridge binds only loopback, token auth is required for browser commands/events, mobile does not claim unrestricted background watch, and status/activity/default history exclude clipboard bodies.
+- 测试覆盖情况: 通过. Runtime validation, no-body leakage, transfer manifest, bridge event encoding, Web bridge loopback/command paths, Flutter analyze/tests, native builds, Android AAR/APK, and validation script passed locally. Hosted CI and live Hub smoke are recorded as external validation obligations rather than local proof.
+- 子Agent治理与审计: 通过. Parallel work was assessed in Stage 3.2; no sub-agent dispatch was used because the current host did not expose a reliable dispatch tool. Main agent retained integration, review, validation, and archive ownership.
+
+阻塞：否
+进入 4
+
+## Stage 4 - Change Archive
+
+使用 `$m-docs` 校验 change/lessons 路由、requirements/specs 影响和索引维护。
+
+- Requirements impact: `none`; implementation follows `docs/requirements/clipboard-sync.md`.
+- Specs impact: `none`; implementation follows `docs/specs/clipboard-sync.md` and does not change MyFlowHub protocol wire behavior.
+- Lessons impact: `updated`; created reusable lessons for gomobile platform bindings and Web localhost bridge error propagation.
+- Change archive: `docs/change/2026-06-02_clipboard-full-platform-sync.md`.
 - Related lessons:
-  - [docs/lessons/debug-latest-ci-native-exit-flutter-material.md](docs/lessons/debug-latest-ci-native-exit-flutter-material.md)
-  - [docs/lessons/flutter-windows-sdk-shared-bat-git.md](docs/lessons/flutter-windows-sdk-shared-bat-git.md)
-- Index update: [docs/change/README.md](docs/change/README.md)
-- New reusable lesson: not needed; no new recurring failure mode was discovered.
-- Remote validation: `workflow_dispatch` run `26730886050` passed across all build jobs.
-- Workflow end: not requested yet; merging to `master` will run the same workflow as a publish-capable push and refresh `debug-latest`.
+  - `docs/lessons/gomobile-mobile-bindings.md`
+  - `docs/lessons/web-localhost-bridge-errors.md`
+- Indexes updated:
+  - `docs/change/README.md`
+  - `docs/lessons/README.md`
+
+Stage 4 archive is complete. Do not merge or clean the worktree until the user explicitly confirms workflow end.

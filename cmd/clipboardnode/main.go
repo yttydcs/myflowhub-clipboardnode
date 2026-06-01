@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"strings"
+	"syscall"
 
 	"github.com/yttydcs/myflowhub-clipboardnode/core/configstore"
-	"github.com/yttydcs/myflowhub-clipboardnode/windows"
+	"github.com/yttydcs/myflowhub-clipboardnode/core/engine"
+	"github.com/yttydcs/myflowhub-clipboardnode/platform"
 )
 
 func main() {
@@ -23,6 +29,7 @@ func run() error {
 		return err
 	}
 	configFile := flag.String("config", defaultConfigPath, "path to ClipboardNode JSON config")
+	sendText := flag.String("send-text", "", "publish one manual text value through the configured clipboard topic")
 	flag.Parse()
 
 	store, err := configstore.New(*configFile)
@@ -33,17 +40,48 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	adapter, err := windows.NewClipboardAdapter(windows.Options{MaxReadBytes: cfg.MaxInlineBytes})
+	adapter, err := platform.NewClipboardAdapter(platform.ClipboardOptions{MaxReadBytes: cfg.MaxInlineBytes})
 	if err != nil {
 		return fmt.Errorf("initialize clipboard adapter: %w", err)
 	}
 	defer adapter.Close()
 
-	if cfg.Enabled {
-		return fmt.Errorf("clipboard sync is enabled, but the TopicBus SDK transport is not wired into this host skeleton yet")
+	workDir := filepath.Dir(*configFile)
+	eng, err := engine.New(engine.Options{
+		Config:    cfg,
+		WorkDir:   workDir,
+		Clipboard: adapter,
+		Log:       slog.Default(),
+	})
+	if err != nil {
+		return fmt.Errorf("initialize clipboard engine: %w", err)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	fmt.Printf("ClipboardNode config loaded from %s\n", *configFile)
-	fmt.Printf("sync disabled; parent_endpoint=%q topic=%q max_inline_bytes=%d\n", cfg.ParentEndpoint, cfg.Topic, cfg.MaxInlineBytes)
+	fmt.Printf("parent_endpoint=%q topic=%q enabled=%t auto_watch=%t auto_apply=%t max_inline_bytes=%d\n",
+		cfg.ParentEndpoint, cfg.Topic, cfg.Enabled, cfg.AutoWatch, cfg.AutoApply, cfg.MaxInlineBytes)
+	if err := eng.Start(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		_ = eng.Stop(context.Background())
+	}()
+	if strings.TrimSpace(*sendText) != "" {
+		decision, err := eng.SendText(ctx, *sendText)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("manual send action=%s event_id=%s size=%d hash=%s\n",
+			decision.Action, decision.EventID, decision.Size, decision.HashPrefix)
+		return nil
+	}
+	fmt.Println("ClipboardNode running; press Ctrl+C to stop.")
+	<-ctx.Done()
+	status := eng.Status()
+	fmt.Printf("stopped; connected=%t logged_in=%t node=%d hub=%d last_action=%s last_error=%q\n",
+		status.Connected, status.LoggedIn, status.NodeID, status.HubID, status.Runtime.LastAction, status.LastError)
 	return nil
 }
 

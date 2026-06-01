@@ -3,12 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:myflowhub_clipboard/main.dart';
 import 'package:myflowhub_clipboard/app/theme/app_theme.dart';
+import 'package:myflowhub_clipboard/core/bridge/preview_engine_bridge.dart';
+
+ClipboardNodeApp previewApp() {
+  return ClipboardNodeApp(bridgeFactory: () => PreviewEngineBridge());
+}
 
 void main() {
   testWidgets('uses stable switch colors and CJK-capable font fallback', (
     tester,
   ) async {
-    await tester.pumpWidget(const ClipboardNodeApp());
+    await tester.pumpWidget(previewApp());
 
     final theme = Theme.of(tester.element(find.byType(Scaffold)));
     final switchTheme = theme.switchTheme;
@@ -39,7 +44,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const ClipboardNodeApp());
+    await tester.pumpWidget(previewApp());
 
     expect(find.text('ClipboardNode'), findsWidgets);
     expect(find.text('总览'), findsWidgets);
@@ -53,7 +58,7 @@ void main() {
   testWidgets(
     'connects with background auth and sends metadata-only activity',
     (tester) async {
-      await tester.pumpWidget(const ClipboardNodeApp());
+      await tester.pumpWidget(previewApp());
 
       await tester.tap(find.widgetWithText(FilledButton, '连接'));
       await tester.pump(const Duration(milliseconds: 600));
@@ -82,7 +87,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const ClipboardNodeApp());
+    await tester.pumpWidget(previewApp());
     await tester.tap(find.widgetWithText(FilledButton, '连接'));
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
@@ -101,7 +106,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const ClipboardNodeApp());
+    await tester.pumpWidget(previewApp());
     await tester.tap(find.byIcon(Icons.tune_outlined).first);
     await tester.pumpAndSettle();
 

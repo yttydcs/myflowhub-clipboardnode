@@ -163,13 +163,26 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
       throw StateError('待发送文本不能为空');
     }
     final byteSize = utf8.encode(text).length;
-    if (byteSize > _state.settings.maxInlineBytes) {
-      throw StateError('文本超过 TopicBus 内联上限，请使用后续的大内容传输入口');
-    }
     final now = DateTime.now();
     final hashPrefix = now.microsecondsSinceEpoch
         .toRadixString(16)
         .padLeft(12, '0');
+    if (byteSize > _state.settings.maxInlineBytes) {
+      final transfer = TransferStatus(
+        id: 'preview-transfer-${now.microsecondsSinceEpoch}',
+        state: 'unsupported',
+        byteSize: byteSize,
+        hashPrefix: hashPrefix.substring(hashPrefix.length - 12),
+        detail: 'clipboard.transfer.v1',
+      );
+      _emit(
+        _state.copyWith(
+          transferStatus: transfer,
+          lastError: '文本超过 TopicBus 内联上限，当前未配置大内容传输',
+        ),
+      );
+      return;
+    }
     final activity = ClipboardActivity(
       id: 'preview-${now.microsecondsSinceEpoch}',
       kind: ActivityKind.published,
@@ -192,8 +205,28 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
   }
 
   @override
+  Future<void> readClipboard() async {
+    throw StateError('预览模式不能读取系统剪贴板');
+  }
+
+  @override
+  Future<void> applyPending(String eventId) async {
+    if (_state.pendingEvent?.eventId != eventId) {
+      throw StateError('没有可应用的待接收事件');
+    }
+    _emit(_state.copyWith(clearPendingEvent: true, lastError: ''));
+  }
+
+  @override
   Future<void> clearRecent() async {
-    _emit(_state.copyWith(activities: const [], lastError: ''));
+    _emit(
+      _state.copyWith(
+        activities: const [],
+        clearPendingEvent: true,
+        clearTransferStatus: true,
+        lastError: '',
+      ),
+    );
   }
 
   @override

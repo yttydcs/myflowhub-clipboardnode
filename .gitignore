@@ -6,9 +6,12 @@ node_modules/
 *.exe
 *.dll
 *.aar
+*.xcframework/
 *.apk
 coverage/
 .idea/
 .vscode/
+app/.gradle-home/
+app/android/app/libs/
 
 .ace-tool/

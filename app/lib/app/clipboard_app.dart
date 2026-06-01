@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../core/bridge/preview_engine_bridge.dart';
+import '../core/bridge/bridge_factory.dart';
+import '../core/bridge/engine_bridge.dart';
 import '../core/controller/clipboard_controller.dart';
 import '../features/shell/clipboard_shell.dart';
 import 'theme/app_theme.dart';
 
 class ClipboardNodeApp extends StatefulWidget {
-  const ClipboardNodeApp({super.key});
+  const ClipboardNodeApp({super.key, this.bridgeFactory});
+
+  final ClipboardEngineBridge Function()? bridgeFactory;
 
   @override
   State<ClipboardNodeApp> createState() => _ClipboardNodeAppState();
@@ -18,13 +21,19 @@ class _ClipboardNodeAppState extends State<ClipboardNodeApp> {
   @override
   void initState() {
     super.initState();
-    _controller = ClipboardController(PreviewEngineBridge());
+    _controller = ClipboardController(
+      widget.bridgeFactory?.call() ?? _createBridge(),
+    );
   }
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  ClipboardEngineBridge _createBridge() {
+    return createDefaultBridge();
   }
 
   @override
