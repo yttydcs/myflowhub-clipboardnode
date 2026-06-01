@@ -87,7 +87,15 @@ none
 - `actions/setup-java` 最新 release tag 查询: `v5.2.0`，workflow 使用 `actions/setup-java@v5`。
 - YAML 结构解析: 通过，确认 8 个 job 和 publish dependencies。
 - `git diff --check`: 通过。
-- 本地 Windows 可执行验证和远端 GitHub Actions 结果见本 workflow 后续 Stage 3.3 记录。
+- `GOWORK=off go test ./... -count=1`: 通过。
+- Go Windows CLI cross-compile: 通过。
+- `flutter analyze`: 通过。
+- `flutter test`: 通过，5 个测试。
+- `flutter build windows --debug`: 通过。
+- `flutter build web --debug`: 通过。
+- 远端 `workflow_dispatch` run `26730886050`: 全部 build job 通过。
+  - Go CLI、Windows、Linux、macOS、Android、iOS simulator、Web 均完成构建和 artifact 上传。
+  - `publish-debug-latest` 因为不是 `master` push 按预期跳过。
 
 ## 潜在影响
 

@@ -398,7 +398,15 @@ Current `debug-latest` publishes only a Windows Flutter debug package and a Wind
   - `flutter build web --debug`: passed.
   - `git diff --check`: passed.
   - `actionlint`: not installed locally.
-  - Linux/macOS/Android/iOS simulator Flutter builds require GitHub hosted runners and are pending remote validation after push.
+  - Remote workflow run `26730886050`: passed on `workflow_dispatch`.
+    - Build Go CLI: passed.
+    - Build Windows debug: passed.
+    - Build Linux debug: passed.
+    - Build macOS debug: passed.
+    - Build Android debug: passed.
+    - Build iOS simulator debug: passed.
+    - Build Web debug: passed.
+    - Publish debug-latest: skipped because this was not a `master` push, as intended.
 - 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）: 通过。No sub-agent dispatch; all file changes map to `CI-8` through `CI-11`.
 
 阻塞：否
@@ -419,4 +427,5 @@ Current `debug-latest` publishes only a Windows Flutter debug package and a Wind
   - [docs/lessons/flutter-windows-sdk-shared-bat-git.md](docs/lessons/flutter-windows-sdk-shared-bat-git.md)
 - Index update: [docs/change/README.md](docs/change/README.md)
 - New reusable lesson: not needed; no new recurring failure mode was discovered.
-- Workflow end: not requested yet; next step is commit, push, and remote Actions validation.
+- Remote validation: `workflow_dispatch` run `26730886050` passed across all build jobs.
+- Workflow end: not requested yet; merging to `master` will run the same workflow as a publish-capable push and refresh `debug-latest`.
