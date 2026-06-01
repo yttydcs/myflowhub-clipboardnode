@@ -21,18 +21,24 @@ Sync is disabled by default. The first phase is text-only, online-only, and best
 
 ## Debug Preview
 
-The latest automated Windows debug build is published as a prerelease:
+The latest automated all-platform debug build is published as a prerelease:
 
 ```text
 https://github.com/yttydcs/myflowhub-clipboardnode/releases/tag/debug-latest
 ```
 
-Each `master` push refreshes the movable `debug-latest` tag and uploads:
+Each `master` push refreshes the movable `debug-latest` tag after all platform jobs pass and uploads:
 
 - `myflowhub-clipboardnode-windows-debug.zip`: full Flutter Windows debug runner directory.
-- `clipboardnode-windows-amd64.exe`: Go CLI build from `cmd/clipboardnode`.
+- `myflowhub-clipboardnode-linux-debug.tar.gz`: Flutter Linux debug bundle.
+- `myflowhub-clipboardnode-macos-debug.zip`: unsigned Flutter macOS debug `.app`.
+- `myflowhub-clipboardnode-android-debug.apk`: Flutter Android debug APK.
+- `myflowhub-clipboardnode-ios-simulator-debug.zip`: unsigned Flutter iOS simulator debug `.app`.
+- `myflowhub-clipboardnode-web-debug.zip`: Flutter Web debug bundle.
+- `clipboardnode-windows-amd64.exe`: Go CLI helper for Windows.
 
 Manual workflow runs and pull requests still build the same artifacts in GitHub Actions, but only `master` pushes update the prerelease.
+Debug artifacts are unsigned preview builds, not production distribution packages.
 
 ## Scope
 
@@ -79,7 +85,9 @@ $env:PUB_CACHE = "$flutterRoot\.pub-cache"
 cd app
 flutter analyze
 flutter test
-flutter build windows
-flutter build web
+flutter build windows --debug
+flutter build web --debug
 ```
+
+Linux, macOS, Android, and iOS simulator debug builds are validated by GitHub Actions on their matching hosted runners.
 

@@ -4,6 +4,7 @@ Completed workflow archives for ClipboardNode.
 
 ## Current
 
+- [2026-06-01_debug-latest-all-platforms.md](2026-06-01_debug-latest-all-platforms.md)
 - [2026-05-31_debug-latest-build.md](2026-05-31_debug-latest-build.md)
 - [2026-05-31_clipboard-ui-endpoint-background-auth.md](2026-05-31_clipboard-ui-endpoint-background-auth.md)
 - [2026-05-31_clipboard-cross-platform-app-shell.md](2026-05-31_clipboard-cross-platform-app-shell.md)
