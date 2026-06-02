@@ -4,8 +4,8 @@ name: debug-latest
   push:
     branches:
       - master
-    tags-ignore:
-      - "**"
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
 
@@ -692,6 +692,108 @@ jobs:
           release_url="https://github.com/${repo}/releases/tag/${tag}"
           {
             echo "## Debug Assets"
+            echo
+            echo "- Release: ${release_url}"
+            echo "- Commit: \`${sha}\`"
+            for asset in "${required_assets[@]}"; do
+              echo "- https://github.com/${repo}/releases/download/${tag}/${asset}"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  publish-tag-release:
+    name: Publish tag release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-go-cli
+      - build-windows-debug
+      - build-linux-debug
+      - build-macos-debug
+      - build-android-debug
+      - build-ios-debug
+      - build-web-debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: myflowhub-clipboardnode-release-${{ github.ref_name }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish version release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repo="${GITHUB_REPOSITORY}"
+          tag="${GITHUB_REF_NAME}"
+          sha="${GITHUB_SHA}"
+          required_assets=(
+            "myflowhub-clipboardnode-windows-debug.zip"
+            "myflowhub-clipboardnode-linux-debug.tar.gz"
+            "myflowhub-clipboardnode-macos-debug.zip"
+            "myflowhub-clipboardnode-android-debug.apk"
+            "myflowhub-clipboardnode-ios-simulator-debug.zip"
+            "myflowhub-clipboardnode-web-debug.zip"
+            "clipboardnode-windows-amd64.exe"
+            "clipboardnode-bridge-windows-amd64.exe"
+          )
+
+          upload_args=()
+          for asset in "${required_assets[@]}"; do
+            path="artifacts/${asset}"
+            if [[ ! -f "${path}" ]]; then
+              echo "Missing required release asset: ${path}" >&2
+              find artifacts -maxdepth 3 -type f -print >&2 || true
+              exit 1
+            fi
+            upload_args+=("${path}")
+          done
+
+          release_title="MyFlowHub ClipboardNode ${tag}"
+          run_url="${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}"
+          release_notes_file="$(mktemp)"
+          {
+            echo "自动构建的 MyFlowHub ClipboardNode 版本发布。"
+            echo
+            echo "tag=${tag}"
+            echo "commit=${sha}"
+            echo "run=${run_url}"
+            echo
+            echo "Assets:"
+            for asset in "${required_assets[@]}"; do
+              echo "- ${asset}"
+            done
+            echo
+            echo "Note: current assets are unsigned preview/debug artifacts. Production signing and store distribution require a later release workflow."
+          } > "${release_notes_file}"
+
+          if release_id="$(gh release view "${tag}" --repo "${repo}" --json databaseId --jq .databaseId 2>/dev/null)"; then
+            release_notes="$(cat "${release_notes_file}")"
+            gh api --method PATCH "repos/${repo}/releases/${release_id}" \
+              -f name="${release_title}" \
+              -f body="${release_notes}" \
+              -F draft=false \
+              -F prerelease=false \
+              -f make_latest=true \
+              >/dev/null
+          else
+            gh release create "${tag}" --repo "${repo}" --title "${release_title}" --notes-file "${release_notes_file}" --verify-tag --latest
+          fi
+
+          gh release upload "${tag}" "${upload_args[@]}" --repo "${repo}" --clobber
+
+          release_url="https://github.com/${repo}/releases/tag/${tag}"
+          {
+            echo "## Release Assets"
             echo
             echo "- Release: ${release_url}"
             echo "- Commit: \`${sha}\`"

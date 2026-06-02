@@ -36,7 +36,7 @@ through TopicBus. TopicBus publish is not a remote-apply ACK. Oversize content
 is not split into TopicBus chunks; it is rejected unless a transfer manifest
 provider/reference is configured.
 
-## Debug Preview
+## Release Channels
 
 The latest automated all-platform debug build is published as a prerelease:
 
@@ -66,7 +66,14 @@ builds with an explicit stub bridge and reports that the native binding is
 missing.
 
 Manual workflow runs and pull requests still build the same artifacts in GitHub Actions, but only `master` pushes update the prerelease.
-Debug artifacts are unsigned preview builds, not production distribution packages.
+
+Pushing a version tag that starts with `v`, such as `v1.2.3`, runs the same
+all-platform validation and publishes a GitHub Release for that exact tag. The
+movable `debug-latest` tag is not treated as a version release trigger.
+
+Current release assets are unsigned preview/debug artifacts, not production
+distribution packages. Production signing, notarization, app-store packaging,
+and installer generation require a later dedicated release workflow.
 
 ## Scope
 
