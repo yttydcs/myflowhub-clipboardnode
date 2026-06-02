@@ -49,14 +49,21 @@ https://github.com/yttydcs/myflowhub-clipboardnode/releases/tag/debug-latest
 Each `master` push refreshes the movable `debug-latest` tag after all platform
 debug jobs pass and uploads:
 
-- `myflowhub-clipboardnode-windows-debug.zip`: full Flutter Windows debug runner directory.
+For a Windows desktop quick start, download
+`myflowhub-clipboardnode-windows-debug.zip`, extract the whole zip, then
+double-click `ClipboardNode.exe`. The desktop zip already includes the local Go
+bridge helper used by the UI; no separate helper download is required. Keep the
+extracted files together because the Flutter desktop app needs the bundled DLLs
+and `data/` directory next to the executable.
+
+- `myflowhub-clipboardnode-windows-debug.zip`: self-contained Flutter Windows debug runner directory with `ClipboardNode.exe` and the desktop bridge helper.
 - `myflowhub-clipboardnode-linux-debug.tar.gz`: Flutter Linux debug bundle.
 - `myflowhub-clipboardnode-macos-debug.zip`: unsigned Flutter macOS debug `.app`.
 - `myflowhub-clipboardnode-android-debug.apk`: Flutter Android debug APK.
 - `myflowhub-clipboardnode-ios-simulator-debug.zip`: unsigned Flutter iOS simulator debug `.app`.
-- `myflowhub-clipboardnode-web-debug.zip`: Flutter Web debug bundle.
-- `clipboardnode-windows-amd64.exe`: Go CLI helper for Windows.
-- `clipboardnode-bridge-windows-amd64.exe`: Go stdio bridge helper for desktop UI integration.
+- `myflowhub-clipboardnode-web-debug.zip`: Flutter Web debug bundle for hosting/browser preview; it is not the Windows desktop quick-start package.
+- `clipboardnode-windows-amd64.exe`: Go CLI diagnostic helper for Windows, not the desktop UI.
+- `clipboardnode-bridge-windows-amd64.exe`: Go stdio bridge helper for desktop UI integration; users normally do not start it directly.
 
 Android debug builds generate `app/android/app/libs/myflowhub.aar` from
 `nodemobile` before building the APK. If a developer builds locally without the
@@ -81,15 +88,22 @@ assets are present.
 
 Release assets are:
 
-- `myflowhub-clipboardnode-windows-release.zip`: Flutter Windows release runner directory with the desktop bridge helper.
+For a Windows desktop quick start, download
+`myflowhub-clipboardnode-windows-release.zip`, extract the whole zip, then
+double-click `ClipboardNode.exe`. The desktop zip already includes the local Go
+bridge helper used by the UI; no separate helper download is required. Keep the
+extracted files together because the Flutter desktop app needs the bundled DLLs
+and `data/` directory next to the executable.
+
+- `myflowhub-clipboardnode-windows-release.zip`: self-contained Flutter Windows release runner directory with `ClipboardNode.exe` and the desktop bridge helper.
 - `myflowhub-clipboardnode-linux-release.tar.gz`: Flutter Linux release bundle with the desktop bridge helper.
 - `myflowhub-clipboardnode-macos-release.zip`: Flutter macOS release `.app`, signed and notarized when tag-release secrets are configured.
 - `myflowhub-clipboardnode-android-release.apk`: Android release APK.
 - `myflowhub-clipboardnode-android-release.aab`: Android release app bundle.
 - `myflowhub-clipboardnode-ios-release.ipa`: iOS release IPA exported with a distribution certificate and provisioning profile.
-- `myflowhub-clipboardnode-web-release.zip`: Flutter Web release bundle.
-- `clipboardnode-windows-amd64.exe`: Windows Go CLI helper.
-- `clipboardnode-bridge-windows-amd64.exe`: Windows Go stdio bridge helper.
+- `myflowhub-clipboardnode-web-release.zip`: Flutter Web release bundle for web hosting; it is not the Windows desktop quick-start package.
+- `clipboardnode-windows-amd64.exe`: Windows Go CLI diagnostic helper, not the desktop UI.
+- `clipboardnode-bridge-windows-amd64.exe`: Windows Go stdio bridge helper; users normally do not start it directly.
 - `myflowhub-clipboardnode-release-checksums.txt`: SHA-256 checksums for release assets.
 
 Manual `release.yml` workflow runs are dry-runs: they validate release build

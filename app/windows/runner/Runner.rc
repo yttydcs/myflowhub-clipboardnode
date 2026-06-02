@@ -94,7 +94,7 @@ BEGIN
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "ClipboardNode" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 yttydcs. All rights reserved." "\0"
-            VALUE "OriginalFilename", "myflowhub_clipboard.exe" "\0"
+            VALUE "OriginalFilename", "ClipboardNode.exe" "\0"
             VALUE "ProductName", "ClipboardNode" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

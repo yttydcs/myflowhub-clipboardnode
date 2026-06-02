@@ -172,6 +172,21 @@ jobs:
           Copy-Item -Path "$runnerDir/*" -Destination $packageRoot -Recurse -Force
           Copy-Item -LiteralPath "dist/clipboardnode-bridge-windows-amd64.exe" -Destination (Join-Path $packageRoot "clipboardnode-bridge.exe") -Force
 
+          $packageReadme = @(
+            "ClipboardNode Windows desktop package"
+            ""
+            "Start here:"
+            "1. Extract the whole zip to a local folder."
+            "2. Double-click ClipboardNode.exe."
+            ""
+            "Everything required by the Windows desktop app is already in this folder."
+            "Do not download or start clipboardnode-bridge.exe separately; it is the local engine helper used by the desktop UI."
+            "Do not move files out of this folder; the app needs flutter_windows.dll and data/ next to the executable."
+            ""
+            "This is a release-mode build for the tag recorded in build-info.txt."
+          ) -join "`r`n"
+          Set-Content -LiteralPath (Join-Path $packageRoot "README-WINDOWS.txt") -Value $packageReadme -Encoding utf8
+
           $buildInfo = @(
             "repo=$env:GITHUB_REPOSITORY"
             "tag=$env:RELEASE_TAG"

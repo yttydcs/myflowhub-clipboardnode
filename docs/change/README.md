@@ -4,6 +4,7 @@ Completed workflow archives for ClipboardNode.
 
 ## Current
 
+- [2026-06-02_user-friendly-download-package.md](2026-06-02_user-friendly-download-package.md)
 - [2026-06-02_tag-release-ci.md](2026-06-02_tag-release-ci.md)
 - [2026-06-02_clipboard-full-platform-sync.md](2026-06-02_clipboard-full-platform-sync.md)
 - [2026-06-01_debug-latest-all-platforms.md](2026-06-01_debug-latest-all-platforms.md)
