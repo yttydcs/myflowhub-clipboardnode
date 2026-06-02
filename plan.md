@@ -7,7 +7,7 @@
 - Branch: `feat/full-platform-clipboard-sync`
 - Base branch: `master`
 - Base commit: `6a8c582551287a65283e337fe173eee9c1d6749f`
-- Current stage: `3.2 - Hosted CI remediation in progress`
+- Current stage: `4 - Change archive complete; awaiting workflow end confirmation`
 - Control document: root `plan.md`
 - Stage 3.2 entry: confirmed by user request on 2026-06-02: `请按照plan.md 实现`.
 
@@ -117,7 +117,8 @@ Not doing:
 
 - No requirements blocker for plan generation.
 - Hosted CI run `26789125424` failed after the first archive pass: Android/iOS `.sh` scripts lacked executable permission when invoked directly, macOS/iOS jobs lacked Go setup before bridge/gomobile builds, and Android gomobile needed explicit SDK package preparation for API 26/NDK.
-- Workflow is rolled back from Stage 4 to Stage 3.2 for `QA-1` CI-environment remediation only; no product behavior expansion is allowed in this pass.
+- Workflow was rolled back from Stage 4 to Stage 3.2 for `QA-1` CI-environment remediation only; no product behavior expansion was added in that pass.
+- Hosted CI run `26789687407` passed for Go CLI, Windows, Linux, macOS, Android AAR/APK, iOS simulator XCFramework/app, and Web debug builds.
 - User confirmation is required only before ending the workflow, merging, or cleaning up the worktree.
 
 ### Stage 2 - Architecture Design
@@ -666,12 +667,10 @@ Hosted validation record:
 - macOS failure: `go: command not found`; workflow now installs Go before building `clipboardnode-bridge`.
 - iOS failure: `./scripts/build_ios_xcframework.sh: Permission denied`; workflow now installs Go and invokes the script through `bash`.
 - Gomobile scripts now install both pinned `gomobile` and `gobind`, and prepend `$(go env GOPATH)/bin` to `PATH` before invoking the generated tools.
-
-External or hosted validation still required after the remediation commit is pushed:
-
-- GitHub Actions Linux/macOS/iOS jobs must prove hosted desktop and iOS simulator builds.
-- iOS gomobile Swift module/symbol names require macOS/Xcode proof.
-- Existing `debug-latest` release artifacts are from `master` commit `6a8c582551287a65283e337fe173eee9c1d6749f`, so they do not prove this worktree's new changes.
+- CI remediation commit `a60ec93` was pushed to `origin/feat/full-platform-clipboard-sync`.
+- GitHub Actions run `26789687407` passed on commit `a60ec93`: Go CLI, Windows debug, Linux debug, macOS debug, Android debug with required all-ABI gomobile AAR, iOS simulator debug with required `Nodemobile.xcframework`, and Web debug all succeeded.
+- Run URL: `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26789687407`.
+- Existing `debug-latest` release artifacts are still from `master` commit `6a8c582551287a65283e337fe173eee9c1d6749f`; feature-branch CI artifacts from run `26789687407` are the hosted evidence for this workflow.
 
 ## Stage 3.3 - Code Review
 
@@ -683,7 +682,7 @@ Stage 3.3 review result: passed.
 - 可读性与一致性: 通过. Naming follows existing `core/runtime`, `bridge`, `nodemobile`, and Flutter bridge patterns; comments are limited to non-obvious generated-binding and minSdk decisions.
 - 可扩展性与配置化: 通过. Transfer references are configured as opaque provider/ref metadata, Web bridge endpoint/token are dart-defines, and mobile bindings remain optional generated artifacts with explicit fallback.
 - 稳定性与安全: 通过. Config validation fails explicitly, Web bridge binds only loopback, token auth is required for browser commands/events, mobile does not claim unrestricted background watch, and status/activity/default history exclude clipboard bodies.
-- 测试覆盖情况: 通过. Runtime validation, no-body leakage, transfer manifest, bridge event encoding, Web bridge loopback/command paths, Flutter analyze/tests, native builds, Android AAR/APK, and validation script passed locally. Hosted CI and live Hub smoke are recorded as external validation obligations rather than local proof.
+- 测试覆盖情况: 通过. Runtime validation, no-body leakage, transfer manifest, bridge event encoding, Web bridge loopback/command paths, Flutter analyze/tests, native builds, Android AAR/APK, and validation script passed locally. GitHub Actions run `26789687407` passed the hosted Go, Windows, Linux, macOS, Android, iOS, and Web debug build matrix. Remote public Hub smoke remains limited by pending node approval, not by ClipboardNode implementation.
 - 子Agent治理与审计: 通过. Parallel work was assessed in Stage 3.2; no sub-agent dispatch was used because the current host did not expose a reliable dispatch tool. Main agent retained integration, review, validation, and archive ownership.
 
 阻塞：否
@@ -703,5 +702,7 @@ Stage 3.3 review result: passed.
 - Indexes updated:
   - `docs/change/README.md`
   - `docs/lessons/README.md`
+- Hosted CI evidence:
+  - `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26789687407`
 
 Stage 4 archive is complete. Do not merge or clean the worktree until the user explicitly confirms workflow end.

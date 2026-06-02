@@ -73,6 +73,8 @@ updated
 - iOS XCFramework proof is macOS/Xcode-only; Windows can validate scripts and Flutter shared code, but cannot prove Swift module symbols.
 - A Web build cannot silently imply native engine access. Live Web mode needs explicit localhost bridge configuration and browser-safe manual clipboard behavior.
 - Bridge error contracts need synchronous command result fields and explicit `ok:false`; omitting false booleans can make Dart treat failures as accepted commands.
+- Hosted CI needs Go setup on macOS/iOS jobs before building the bridge or gomobile bindings; `.sh` scripts should be invoked through `bash` unless executable bits are guaranteed in Git.
+- Android gomobile `-androidapi 26` needs `platforms;android-26`, NDK, and `ANDROID_HOME`/`ANDROID_NDK_HOME` prepared on the runner.
 
 ## 可复用排查线索
 
@@ -112,11 +114,16 @@ updated
 - Local two-node MyFlowHub smoke: passed via `.\scripts\smoke_localhub_two_nodes.ps1 -ServerRoot D:\project\MyFlowHub3\repo\MyFlowHub-Server`; node A and node B logged in as node IDs `2` and `3`, both subscribed to the same topic, node A `send_text` returned `local_published`, and node B status changed to `remote_pending` with matching event ID, size `44`, and hash prefix. Smoke used `auto_watch=false` and `auto_apply=false` to avoid implicit system clipboard reads/writes.
 - Remote Hub smoke attempt against `47.111.165.7:9000`: reached the Hub and Web bridge health checks passed, but both temporary nodes stopped at `authenticate myflowhub node: pending approval`; current MCP identity also cannot approve because login returns `invalid signature`.
 - `git diff --check`: passed with CRLF warnings only.
+- GitHub Actions run `26789125424`: failed initially on Android AAR, macOS app, and iOS simulator jobs; Go CLI, Windows, Linux, and Web jobs passed. Failures were CI-environment issues: direct `.sh` execution without executable bits, missing Go setup on macOS/iOS, and incomplete Android SDK package preparation.
+- CI remediation commit `a60ec93`: added Go setup for macOS/iOS/Android hosted jobs, invoked shell scripts through `bash`, prepared Android `platforms;android-26` and NDK, installed pinned `gomobile` plus `gobind`, and ensured Go bin is on `PATH`.
+- GitHub Actions run `26789687407`: passed on commit `a60ec93`.
+  - Run: `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26789687407`
+  - Passed jobs: Go CLI, Windows debug, Linux debug, macOS debug, Android debug with required all-ABI gomobile AAR/APK, iOS simulator debug with required `Nodemobile.xcframework`, and Web debug.
+  - `Publish debug-latest` was skipped because the run was on `feat/full-platform-clipboard-sync`, not `master`.
 
-Not locally proven:
+Not proven:
 
-- Linux/macOS desktop hosted build and iOS simulator live XCFramework build require GitHub/macOS runners.
-- Current feature branch has no upstream and no GitHub Actions run yet; existing `debug-latest` release artifacts are from `master` commit `6a8c582551287a65283e337fe173eee9c1d6749f`, so they do not prove this worktree's new changes.
+- Remote public Hub end-to-end smoke is not proven because temporary nodes against `47.111.165.7:9000` remain pending approval and the current MCP identity cannot approve them. Local two-node Hub smoke passed and proves the ClipboardNode publish/receive/pending path.
 
 ## 潜在影响
 
