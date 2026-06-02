@@ -14,7 +14,7 @@ echo "  RepoRoot : ${REPO_ROOT}"
 echo "  ModuleDir: ${MODULE_DIR}"
 echo "  Target   : ${TARGET}"
 echo "  OutFile  : ${OUT_PATH}"
-echo "  Gomobile : golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
+echo "  Gomobile : golang.org/x/mobile@${GOMOBILE_VERSION}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "iOS gomobile binding requires macOS and Xcode." >&2
@@ -28,8 +28,15 @@ fi
 
 mkdir -p "$(dirname "${OUT_PATH}")"
 
+go_bin="$(go env GOPATH)/bin"
+case ":${PATH}:" in
+  *":${go_bin}:"*) ;;
+  *) export PATH="${go_bin}:${PATH}" ;;
+esac
+
 echo "Installing pinned gomobile..."
 go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
+go install "golang.org/x/mobile/cmd/gobind@${GOMOBILE_VERSION}"
 
 export GOWORK=off
 

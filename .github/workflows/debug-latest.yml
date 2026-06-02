@@ -249,6 +249,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -325,6 +331,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -332,11 +344,45 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Prepare Android SDK for gomobile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "${android_sdk}" ]]; then
+            echo "ANDROID_HOME or ANDROID_SDK_ROOT must be set before gomobile Android builds" >&2
+            exit 1
+          fi
+
+          echo "ANDROID_HOME=${android_sdk}" >> "${GITHUB_ENV}"
+          echo "ANDROID_SDK_ROOT=${android_sdk}" >> "${GITHUB_ENV}"
+
+          sdkmanager_bin="${android_sdk}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "${sdkmanager_bin}" ]]; then
+            sdkmanager_bin="$(command -v sdkmanager || true)"
+          fi
+          if [[ -z "${sdkmanager_bin}" ]]; then
+            echo "sdkmanager was not found; cannot prepare Android NDK for gomobile" >&2
+            exit 1
+          fi
+
+          ndk_version="27.0.12077973"
+          ndk_path="${android_sdk}/ndk/${ndk_version}"
+          yes | "${sdkmanager_bin}" --licenses >/dev/null || true
+          "${sdkmanager_bin}" "platforms;android-26"
+          if [[ ! -d "${ndk_path}" ]]; then
+            "${sdkmanager_bin}" "ndk;${ndk_version}"
+          fi
+
+          echo "ANDROID_NDK_HOME=${ndk_path}" >> "${GITHUB_ENV}"
+          echo "ANDROID_NDK_ROOT=${ndk_path}" >> "${GITHUB_ENV}"
+
       - name: Build gomobile AAR
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/build_aar.sh android/arm64,android/arm com.myflowhub.gomobile app/android/app/libs/myflowhub.aar 2>&1 | tee gomobile-build.log
+          bash ./scripts/build_aar.sh android/arm64,android/arm,android/amd64,android/386 com.myflowhub.gomobile app/android/app/libs/myflowhub.aar 2>&1 | tee gomobile-build.log
           if [[ ! -f app/android/app/libs/myflowhub.aar ]]; then
             echo "gomobile AAR was not generated" >&2
             exit 1
@@ -407,6 +453,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -418,7 +470,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/build_ios_xcframework.sh iossimulator app/ios/Frameworks/Nodemobile.xcframework 2>&1 | tee gomobile-ios-build.log
+          bash ./scripts/build_ios_xcframework.sh iossimulator app/ios/Frameworks/Nodemobile.xcframework 2>&1 | tee gomobile-ios-build.log
           if [[ ! -d app/ios/Frameworks/Nodemobile.xcframework ]]; then
             echo "Nodemobile.xcframework was not generated" >&2
             exit 1

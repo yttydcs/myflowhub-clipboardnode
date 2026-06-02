@@ -19,7 +19,7 @@ Write-Host "  Target    : $Target"
 Write-Host "  AndroidApi: $AndroidApi"
 Write-Host "  JavaPkg   : $JavaPkg"
 Write-Host "  OutFile   : $outPath"
-Write-Host "  Gomobile  : golang.org/x/mobile/cmd/gomobile@$GomobileVersion"
+Write-Host "  Gomobile  : golang.org/x/mobile@$GomobileVersion"
 
 if (-not (Test-Path $moduleDir)) {
   throw "nodemobile module not found: $moduleDir"
@@ -28,9 +28,17 @@ if (-not (Test-Path $moduleDir)) {
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $outPath) | Out-Null
 
 Write-Host "Installing pinned gomobile..." -ForegroundColor Cyan
+$goBin = Join-Path (& go env GOPATH) 'bin'
+if (-not (($env:Path -split [IO.Path]::PathSeparator) -contains $goBin)) {
+  $env:Path = "$goBin$([IO.Path]::PathSeparator)$env:Path"
+}
 go install "golang.org/x/mobile/cmd/gomobile@$GomobileVersion"
 if ($LASTEXITCODE -ne 0) {
   throw "go install gomobile failed (exit=$LASTEXITCODE)"
+}
+go install "golang.org/x/mobile/cmd/gobind@$GomobileVersion"
+if ($LASTEXITCODE -ne 0) {
+  throw "go install gobind failed (exit=$LASTEXITCODE)"
 }
 
 $env:GOWORK = 'off'

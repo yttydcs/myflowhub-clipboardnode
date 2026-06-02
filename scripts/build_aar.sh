@@ -18,12 +18,19 @@ echo "  Target    : ${TARGET}"
 echo "  AndroidApi: ${ANDROID_API}"
 echo "  JavaPkg   : ${JAVA_PKG}"
 echo "  OutFile   : ${OUT_PATH}"
-echo "  Gomobile  : golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
+echo "  Gomobile  : golang.org/x/mobile@${GOMOBILE_VERSION}"
 
 mkdir -p "$(dirname "${OUT_PATH}")"
 
+go_bin="$(go env GOPATH)/bin"
+case ":${PATH}:" in
+  *":${go_bin}:"*) ;;
+  *) export PATH="${go_bin}:${PATH}" ;;
+esac
+
 echo "Installing pinned gomobile..."
 go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
+go install "golang.org/x/mobile/cmd/gobind@${GOMOBILE_VERSION}"
 
 export GOWORK=off
 

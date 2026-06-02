@@ -7,7 +7,7 @@
 - Branch: `feat/full-platform-clipboard-sync`
 - Base branch: `master`
 - Base commit: `6a8c582551287a65283e337fe173eee9c1d6749f`
-- Current stage: `4 - Change archive complete; awaiting workflow end confirmation`
+- Current stage: `3.2 - Hosted CI remediation in progress`
 - Control document: root `plan.md`
 - Stage 3.2 entry: confirmed by user request on 2026-06-02: `请按照plan.md 实现`.
 
@@ -116,7 +116,8 @@ Not doing:
 #### Issue List
 
 - No requirements blocker for plan generation.
-- Stage 3.2 implementation, Stage 3.3 review, and Stage 4 archive are complete in this worktree.
+- Hosted CI run `26789125424` failed after the first archive pass: Android/iOS `.sh` scripts lacked executable permission when invoked directly, macOS/iOS jobs lacked Go setup before bridge/gomobile builds, and Android gomobile needed explicit SDK package preparation for API 26/NDK.
+- Workflow is rolled back from Stage 4 to Stage 3.2 for `QA-1` CI-environment remediation only; no product behavior expansion is allowed in this pass.
 - User confirmation is required only before ending the workflow, merging, or cleaning up the worktree.
 
 ### Stage 2 - Architecture Design
@@ -658,11 +659,19 @@ Local validation completed on Windows:
 - `git diff --check`: passed with CRLF warnings only.
 - `git status --short --ignored`: generated AAR/build/cache directories remain ignored.
 
-External or hosted validation still required after this worktree is pushed:
+Hosted validation record:
+
+- GitHub Actions run `26789125424`: failed on Android AAR, macOS app, and iOS simulator jobs while Go, Windows, Linux, and Web jobs passed.
+- Android failure: `./scripts/build_aar.sh: Permission denied`; workflow now invokes the script through `bash`, prepares Android `platforms;android-26`, fixes Android SDK/NDK environment variables, and uses all four Android ABI targets.
+- macOS failure: `go: command not found`; workflow now installs Go before building `clipboardnode-bridge`.
+- iOS failure: `./scripts/build_ios_xcframework.sh: Permission denied`; workflow now installs Go and invokes the script through `bash`.
+- Gomobile scripts now install both pinned `gomobile` and `gobind`, and prepend `$(go env GOPATH)/bin` to `PATH` before invoking the generated tools.
+
+External or hosted validation still required after the remediation commit is pushed:
 
 - GitHub Actions Linux/macOS/iOS jobs must prove hosted desktop and iOS simulator builds.
 - iOS gomobile Swift module/symbol names require macOS/Xcode proof.
-- Current feature branch has no upstream and no GitHub Actions run yet; existing `debug-latest` release artifacts are from `master` commit `6a8c582551287a65283e337fe173eee9c1d6749f`, so they do not prove this worktree's new changes.
+- Existing `debug-latest` release artifacts are from `master` commit `6a8c582551287a65283e337fe173eee9c1d6749f`, so they do not prove this worktree's new changes.
 
 ## Stage 3.3 - Code Review
 
