@@ -10,7 +10,7 @@ Allow tag releases to include a clearly labeled unsigned Windows preview package
 - Worktree: `D:\project\MyFlowHub3\worktrees\chore-windows-unsigned-release-preview\MyFlowHub-ClipboardNode`
 - Branch: `chore/windows-unsigned-release-preview`
 - Base: `master`
-- Current stage: `3.3 - Code Review`
+- Current stage: `4 - Change Archive`
 - Current release behavior:
   - Linux and Web always build.
   - Android builds when signing secrets are configured.
@@ -150,3 +150,26 @@ No sub-agent delegation. The change is a tightly coupled workflow/documentation 
 - 稳定性与安全: 通过. Unsigned Windows artifacts carry explicit preview names and package-local warnings; signed production naming is reserved for configured signing secrets.
 - 测试覆盖情况: 通过. YAML structure, bash syntax, PowerShell syntax, Windows capability simulations, publish asset simulation, and `git diff --check` passed.
 - 子Agent治理与审计: 通过. Parallelism was assessed; no sub-agent was dispatched.
+
+## Stage 4 Change Archive
+
+- 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
+- Requirements impact: none.
+- Specs impact: none.
+- Lessons impact: none. 本次没有暴露新的可复用故障模式；归档中记录 Windows unsigned preview 排查线索即可。
+- Archive: `docs/change/2026-06-02_windows-unsigned-release-preview.md`.
+- Index updated: `docs/change/README.md`.
+- Hosted GitHub Actions dry-run:
+  - Run: <https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26831337705>
+  - Result: success.
+  - `Publish GitHub Release`: skipped as expected for manual dry-run.
+  - `gh release view v0.0.0`: absent; no accidental Release was published.
+- Windows artifact inspection:
+  - Artifact outer name: `myflowhub-clipboardnode-windows-release`.
+  - Internal release asset files include `myflowhub-clipboardnode-windows-unsigned-preview.zip`, `clipboardnode-windows-amd64-unsigned-preview.exe`, and `clipboardnode-bridge-windows-amd64-unsigned-preview.exe`.
+  - Expanded package root contains `README-WINDOWS.txt` warning that the Windows package is unsigned preview, may trigger Unknown Publisher or SmartScreen warnings, and must not be treated as a signed production release.
+
+## Workflow End Gate
+
+阻塞：否
+等待用户确认 `结束workflow` 后再合并、推送 master、删除远端分支并清理 worktree。
