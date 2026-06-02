@@ -85,19 +85,26 @@ Pushing a version tag that matches `vX.Y.Z`, such as `v1.2.3`, runs
 `.github/workflows/release.yml`. That workflow builds release-mode assets and
 publishes a stable GitHub Release for the exact tag after every enabled platform
 job succeeds. Platforms that require production signing secrets are skipped when
-their required secret set is incomplete; unsigned production assets are not
-published for those platforms.
+their required secret set is incomplete, except Windows: when Windows signing
+secrets are missing, the workflow publishes explicitly named unsigned preview
+assets instead of signed production Windows assets.
 
 Release assets may include:
 
-For a Windows desktop quick start, download
+For a signed Windows desktop quick start, download
 `myflowhub-clipboardnode-windows-release.zip`, extract the whole zip, then
 double-click `ClipboardNode.exe`. The desktop zip already includes the local Go
 bridge helper used by the UI; no separate helper download is required. Keep the
 extracted files together because the Flutter desktop app needs the bundled DLLs
 and `data/` directory next to the executable.
 
+If Windows signing secrets are not configured, the release may include
+`myflowhub-clipboardnode-windows-unsigned-preview.zip` instead. That package is
+release-mode but unsigned; Windows may show Unknown Publisher or SmartScreen
+warnings, and it should not be treated as a signed production Windows release.
+
 - `myflowhub-clipboardnode-windows-release.zip`: self-contained Flutter Windows release runner directory with `ClipboardNode.exe` and the desktop bridge helper.
+- `myflowhub-clipboardnode-windows-unsigned-preview.zip`: self-contained unsigned Windows preview runner directory with `ClipboardNode.exe` and the desktop bridge helper.
 - `myflowhub-clipboardnode-linux-release.tar.gz`: Flutter Linux release bundle with the desktop bridge helper.
 - `myflowhub-clipboardnode-macos-release.zip`: Flutter macOS release `.app`, signed and notarized when tag-release secrets are configured.
 - `myflowhub-clipboardnode-android-release.apk`: Android release APK.
@@ -105,7 +112,9 @@ and `data/` directory next to the executable.
 - `myflowhub-clipboardnode-ios-release.ipa`: iOS release IPA exported with a distribution certificate and provisioning profile.
 - `myflowhub-clipboardnode-web-release.zip`: Flutter Web release bundle for web hosting; it is not the Windows desktop quick-start package.
 - `clipboardnode-windows-amd64.exe`: Windows Go CLI diagnostic helper, not the desktop UI.
+- `clipboardnode-windows-amd64-unsigned-preview.exe`: unsigned Windows Go CLI diagnostic helper preview, not the desktop UI.
 - `clipboardnode-bridge-windows-amd64.exe`: Windows Go stdio bridge helper; users normally do not start it directly.
+- `clipboardnode-bridge-windows-amd64-unsigned-preview.exe`: unsigned Windows Go stdio bridge helper preview; users normally do not start it directly.
 - `myflowhub-clipboardnode-release-checksums.txt`: SHA-256 checksums for release assets.
 
 Manual `release.yml` workflow runs are dry-runs: they validate release build
@@ -114,6 +123,8 @@ paths with a supplied `release_tag` input but do not publish a GitHub Release.
 Real tag releases require signing secrets for platforms that publish signed
 production binaries. If a required secret set is missing on a `vX.Y.Z` tag push,
 that platform job is skipped and the release notes record the skip reason.
+Windows is the exception: missing Windows signing secrets produce explicitly
+named unsigned preview assets.
 
 Required Android secrets:
 
