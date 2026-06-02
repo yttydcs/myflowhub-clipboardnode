@@ -83,10 +83,12 @@ The movable `debug-latest` tag is ignored by the version release workflow.
 
 Pushing a version tag that matches `vX.Y.Z`, such as `v1.2.3`, runs
 `.github/workflows/release.yml`. That workflow builds release-mode assets and
-publishes a stable GitHub Release for the exact tag only after all required
-assets are present.
+publishes a stable GitHub Release for the exact tag after every enabled platform
+job succeeds. Platforms that require production signing secrets are skipped when
+their required secret set is incomplete; unsigned production assets are not
+published for those platforms.
 
-Release assets are:
+Release assets may include:
 
 For a Windows desktop quick start, download
 `myflowhub-clipboardnode-windows-release.zip`, extract the whole zip, then
@@ -109,9 +111,9 @@ and `data/` directory next to the executable.
 Manual `release.yml` workflow runs are dry-runs: they validate release build
 paths with a supplied `release_tag` input but do not publish a GitHub Release.
 
-Real tag releases require signing secrets. If a required secret set is missing
-on a `vX.Y.Z` tag push, the affected platform job fails before a misleading
-release asset is published.
+Real tag releases require signing secrets for platforms that publish signed
+production binaries. If a required secret set is missing on a `vX.Y.Z` tag push,
+that platform job is skipped and the release notes record the skip reason.
 
 Required Android secrets:
 

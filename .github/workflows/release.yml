@@ -27,6 +27,18 @@ jobs:
       build_name: ${{ steps.meta.outputs.build_name }}
       build_number: ${{ steps.meta.outputs.build_number }}
       publish_release: ${{ steps.meta.outputs.publish_release }}
+      build_windows: ${{ steps.capabilities.outputs.build_windows }}
+      build_linux: ${{ steps.capabilities.outputs.build_linux }}
+      build_macos: ${{ steps.capabilities.outputs.build_macos }}
+      build_android: ${{ steps.capabilities.outputs.build_android }}
+      build_ios: ${{ steps.capabilities.outputs.build_ios }}
+      build_web: ${{ steps.capabilities.outputs.build_web }}
+      windows_status: ${{ steps.capabilities.outputs.windows_status }}
+      linux_status: ${{ steps.capabilities.outputs.linux_status }}
+      macos_status: ${{ steps.capabilities.outputs.macos_status }}
+      android_status: ${{ steps.capabilities.outputs.android_status }}
+      ios_status: ${{ steps.capabilities.outputs.ios_status }}
+      web_status: ${{ steps.capabilities.outputs.web_status }}
 
     steps:
       - name: Validate release tag
@@ -69,9 +81,96 @@ jobs:
             echo "- publish_release: ${publish_release}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      - name: Detect configured release platforms
+        id: capabilities
+        shell: bash
+        env:
+          PUBLISH_RELEASE: ${{ steps.meta.outputs.publish_release }}
+          WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          WINDOWS_CODESIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PFX_PASSWORD }}
+          MACOS_DEVELOPER_ID_CERT_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_CERT_BASE64 }}
+          MACOS_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERT_PASSWORD }}
+          MACOS_DEVELOPER_IDENTITY: ${{ secrets.MACOS_DEVELOPER_IDENTITY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_DEVELOPMENT_TEAM: ${{ secrets.IOS_DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+
+          set_platform() {
+            local platform="$1"
+            local enabled="$2"
+            local status="$3"
+            printf -v "build_${platform}" '%s' "${enabled}"
+            printf -v "${platform}_status" '%s' "${status}"
+            {
+              echo "build_${platform}=${enabled}"
+              echo "${platform}_status=${status}"
+            } >> "${GITHUB_OUTPUT}"
+          }
+
+          secret_status() {
+            local platform="$1"
+            shift
+
+            if [[ "${PUBLISH_RELEASE}" != "true" ]]; then
+              set_platform "${platform}" "true" "enabled: manual dry-run does not publish"
+              return
+            fi
+
+            local missing=()
+            local name
+            for name in "$@"; do
+              if [[ -z "${!name:-}" ]]; then
+                missing+=("${name}")
+              fi
+            done
+
+            if (( ${#missing[@]} == 0 )); then
+              set_platform "${platform}" "true" "enabled: production signing secrets configured"
+            else
+              local IFS=', '
+              set_platform "${platform}" "false" "skipped: missing ${missing[*]}"
+            fi
+          }
+
+          set_platform "linux" "true" "enabled: no signing prerequisite"
+          set_platform "web" "true" "enabled: no signing prerequisite"
+          secret_status "windows" WINDOWS_CODESIGN_PFX_BASE64 WINDOWS_CODESIGN_PFX_PASSWORD
+          secret_status "macos" \
+            MACOS_DEVELOPER_ID_CERT_BASE64 \
+            MACOS_DEVELOPER_ID_CERT_PASSWORD \
+            MACOS_DEVELOPER_IDENTITY \
+            APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID \
+            APPLE_NOTARY_KEY_BASE64
+          secret_status "android" ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD
+          secret_status "ios" IOS_DISTRIBUTION_CERT_BASE64 IOS_DISTRIBUTION_CERT_PASSWORD IOS_PROVISIONING_PROFILE_BASE64 IOS_DEVELOPMENT_TEAM
+
+          {
+            echo
+            echo "## Release Platform Build Plan"
+            echo
+            echo "| Platform | Status |"
+            echo "| --- | --- |"
+            for platform in windows linux macos android ios web; do
+              status_var="${platform}_status"
+              echo "| ${platform} | ${!status_var} |"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   build-windows-release:
     name: Build Windows release
     needs: prepare-release
+    if: needs.prepare-release.outputs.build_windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -358,6 +457,7 @@ jobs:
   build-macos-release:
     name: Build macOS release
     needs: prepare-release
+    if: needs.prepare-release.outputs.build_macos == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     env:
@@ -521,6 +621,7 @@ jobs:
   build-android-release:
     name: Build Android release
     needs: prepare-release
+    if: needs.prepare-release.outputs.build_android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -687,6 +788,7 @@ jobs:
   build-ios-release:
     name: Build iOS release
     needs: prepare-release
+    if: needs.prepare-release.outputs.build_ios == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     env:
@@ -962,7 +1064,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    if: needs.prepare-release.outputs.publish_release == 'true'
+    if: always() && needs.prepare-release.outputs.publish_release == 'true'
     needs:
       - prepare-release
       - build-windows-release
@@ -980,6 +1082,49 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      - name: Validate release build results
+        shell: bash
+        env:
+          BUILD_WINDOWS: ${{ needs.prepare-release.outputs.build_windows }}
+          BUILD_LINUX: ${{ needs.prepare-release.outputs.build_linux }}
+          BUILD_MACOS: ${{ needs.prepare-release.outputs.build_macos }}
+          BUILD_ANDROID: ${{ needs.prepare-release.outputs.build_android }}
+          BUILD_IOS: ${{ needs.prepare-release.outputs.build_ios }}
+          BUILD_WEB: ${{ needs.prepare-release.outputs.build_web }}
+          WINDOWS_RESULT: ${{ needs.build-windows-release.result }}
+          LINUX_RESULT: ${{ needs.build-linux-release.result }}
+          MACOS_RESULT: ${{ needs.build-macos-release.result }}
+          ANDROID_RESULT: ${{ needs.build-android-release.result }}
+          IOS_RESULT: ${{ needs.build-ios-release.result }}
+          WEB_RESULT: ${{ needs.build-web-release.result }}
+        run: |
+          set -euo pipefail
+
+          validate_platform() {
+            local platform="$1"
+            local enabled="$2"
+            local result="$3"
+
+            if [[ "${enabled}" == "true" ]]; then
+              if [[ "${result}" != "success" ]]; then
+                echo "Enabled ${platform} release job did not succeed: ${result}" >&2
+                exit 1
+              fi
+            else
+              if [[ "${result}" != "skipped" ]]; then
+                echo "Disabled ${platform} release job had unexpected result: ${result}" >&2
+                exit 1
+              fi
+            fi
+          }
+
+          validate_platform "windows" "${BUILD_WINDOWS}" "${WINDOWS_RESULT}"
+          validate_platform "linux" "${BUILD_LINUX}" "${LINUX_RESULT}"
+          validate_platform "macos" "${BUILD_MACOS}" "${MACOS_RESULT}"
+          validate_platform "android" "${BUILD_ANDROID}" "${ANDROID_RESULT}"
+          validate_platform "ios" "${BUILD_IOS}" "${IOS_RESULT}"
+          validate_platform "web" "${BUILD_WEB}" "${WEB_RESULT}"
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
@@ -993,13 +1138,19 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
           RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
           RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+          WINDOWS_STATUS: ${{ needs.prepare-release.outputs.windows_status }}
+          LINUX_STATUS: ${{ needs.prepare-release.outputs.linux_status }}
+          MACOS_STATUS: ${{ needs.prepare-release.outputs.macos_status }}
+          ANDROID_STATUS: ${{ needs.prepare-release.outputs.android_status }}
+          IOS_STATUS: ${{ needs.prepare-release.outputs.ios_status }}
+          WEB_STATUS: ${{ needs.prepare-release.outputs.web_status }}
         run: |
           set -euo pipefail
 
           repo="${GITHUB_REPOSITORY}"
           tag="${RELEASE_TAG}"
           sha="${GITHUB_SHA}"
-          required_assets=(
+          known_assets=(
             "myflowhub-clipboardnode-windows-release.zip"
             "myflowhub-clipboardnode-linux-release.tar.gz"
             "myflowhub-clipboardnode-macos-release.zip"
@@ -1012,17 +1163,22 @@ jobs:
           )
 
           upload_args=()
-          for asset in "${required_assets[@]}"; do
+          release_assets=()
+          for asset in "${known_assets[@]}"; do
             path="artifacts/${asset}"
-            if [[ ! -f "${path}" ]]; then
-              echo "Missing required release asset: ${path}" >&2
-              find artifacts -maxdepth 3 -type f -print >&2 || true
-              exit 1
+            if [[ -f "${path}" ]]; then
+              upload_args+=("${path}")
+              release_assets+=("${asset}")
             fi
-            upload_args+=("${path}")
           done
 
-          (cd artifacts && sha256sum "${required_assets[@]}") > artifacts/myflowhub-clipboardnode-release-checksums.txt
+          if (( ${#release_assets[@]} == 0 )); then
+            echo "No release assets were produced." >&2
+            find artifacts -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+
+          (cd artifacts && sha256sum "${release_assets[@]}") > artifacts/myflowhub-clipboardnode-release-checksums.txt
           upload_args+=("artifacts/myflowhub-clipboardnode-release-checksums.txt")
 
           release_title="MyFlowHub ClipboardNode ${tag}"
@@ -1037,14 +1193,16 @@ jobs:
             echo "commit=${sha}"
             echo "run=${run_url}"
             echo
-            echo "Signing status:"
-            echo "- Windows executables: signed by CI PFX secret."
-            echo "- Android APK/AAB: signed by CI keystore secret."
-            echo "- macOS app: signed and notarized by CI Apple secrets."
-            echo "- iOS IPA: exported with CI distribution certificate and provisioning profile."
+            echo "Platform status:"
+            echo "- Windows: ${WINDOWS_STATUS}"
+            echo "- Linux: ${LINUX_STATUS}"
+            echo "- macOS: ${MACOS_STATUS}"
+            echo "- Android: ${ANDROID_STATUS}"
+            echo "- iOS: ${IOS_STATUS}"
+            echo "- Web: ${WEB_STATUS}"
             echo
             echo "Assets:"
-            for asset in "${required_assets[@]}"; do
+            for asset in "${release_assets[@]}"; do
               echo "- ${asset}"
             done
             echo "- myflowhub-clipboardnode-release-checksums.txt"
@@ -1071,7 +1229,17 @@ jobs:
             echo
             echo "- Release: ${release_url}"
             echo "- Commit: \`${sha}\`"
-            for asset in "${required_assets[@]}" "myflowhub-clipboardnode-release-checksums.txt"; do
+            echo
+            echo "Platform status:"
+            echo "- Windows: ${WINDOWS_STATUS}"
+            echo "- Linux: ${LINUX_STATUS}"
+            echo "- macOS: ${MACOS_STATUS}"
+            echo "- Android: ${ANDROID_STATUS}"
+            echo "- iOS: ${IOS_STATUS}"
+            echo "- Web: ${WEB_STATUS}"
+            echo
+            echo "Assets:"
+            for asset in "${release_assets[@]}" "myflowhub-clipboardnode-release-checksums.txt"; do
               echo "- https://github.com/${repo}/releases/download/${tag}/${asset}"
             done
           } >> "${GITHUB_STEP_SUMMARY}"
