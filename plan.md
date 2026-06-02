@@ -4,10 +4,10 @@
 
 - Repo: `D:/project/MyFlowHub3/repo/MyFlowHub-ClipboardNode`
 - Active worktree: `D:/project/MyFlowHub3/worktrees/feat-full-platform-clipboard-sync/MyFlowHub-ClipboardNode`
-- Branch: `feat/full-platform-clipboard-sync`
+- Branch: `master` after fast-forward merge from `feat/full-platform-clipboard-sync`
 - Base branch: `master`
 - Base commit: `6a8c582551287a65283e337fe173eee9c1d6749f`
-- Current stage: `4 - Change archive complete; awaiting workflow end confirmation`
+- Current stage: `closed - merged into master; worktree cleanup requested`
 - Control document: root `plan.md`
 - Stage 3.2 entry: confirmed by user request on 2026-06-02: `请按照plan.md 实现`.
 
@@ -705,4 +705,9 @@ Stage 3.3 review result: passed.
 - Hosted CI evidence:
   - `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26789687407`
 
-Stage 4 archive is complete. Do not merge or clean the worktree until the user explicitly confirms workflow end.
+## Workflow End
+
+- End confirmation: user said `结束workflow`.
+- Merge result: fast-forward merged `origin/feat/full-platform-clipboard-sync` into local `master` at `18cfea51f22dcb1303571b23510693a3d0bccb1d`.
+- Global plan, `docs/change`, `docs/lessons`, and affected indexes are now present in the main repo.
+- Worktree cleanup target: `D:/project/MyFlowHub3/worktrees/feat-full-platform-clipboard-sync/MyFlowHub-ClipboardNode`.
