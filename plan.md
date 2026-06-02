@@ -275,7 +275,7 @@ Using `$m-docs`:
 
 - `CI-REL-1`: updated `.github/workflows/debug-latest.yml` so `push` triggers include `master` and `v*` tags. Added `publish-tag-release`, which depends on all existing build jobs, validates the same required artifact list, creates or updates the pushed version tag release, uploads assets with `--clobber`, and marks existing releases as non-draft, non-prerelease, and latest through the GitHub REST API.
 - `CI-REL-2`: updated `README.md` from a debug-only section to release channels, documenting the existing `debug-latest` prerelease and the new `v*` tag release behavior.
-- `CI-REL-3`: validation passed for YAML parsing, workflow trigger assertions, release job dependency matching, release gate assertions, `git diff --check`, and Go tests.
+- `CI-REL-3`: validation passed for YAML parsing, workflow trigger assertions, release job dependency matching, release gate assertions, `git diff --check`, Go tests, and hosted `workflow_dispatch` run `26801062682`.
 
 ## Stage 3.3 - Code Review
 
@@ -288,6 +288,7 @@ Stage 3.3 review result: passed.
 - 可扩展性与配置化: 通过. Release tag pattern is explicit and can be tightened later if strict SemVer is required.
 - 稳定性与安全: 通过. Global permissions stay read-only; publish jobs opt into `contents: write`; `debug-latest` is excluded from version release triggers.
 - 测试覆盖情况: 通过. YAML parse, condition assertions, dependency assertions, `git diff --check`, and `GOWORK=off go test ./... -count=1` passed.
+- 远端验证: 通过. GitHub Actions run `26801062682` on `chore/tag-release-ci` passed Go CLI, Windows, Linux, macOS, Android, iOS simulator, and Web build jobs. `Publish tag release` and `Publish debug-latest` were skipped as expected for `workflow_dispatch`.
 - 子Agent治理与审计: 通过. Parallelism was assessed in Stage 3.1; no sub-agent was dispatched.
 
 阻塞：否
@@ -301,6 +302,7 @@ Stage 3.3 review result: passed.
 - Specs impact: `none`; release automation does not change `docs/specs/clipboard-sync.md`.
 - Lessons impact: `none`; no new reusable failure mode emerged.
 - Change archive: `docs/change/2026-06-02_tag-release-ci.md`.
+- Hosted validation: `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26801062682`
 - Related requirements:
   - `docs/requirements/clipboard-sync.md`
 - Related specs:

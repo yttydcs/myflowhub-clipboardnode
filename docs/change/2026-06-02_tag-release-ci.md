@@ -95,6 +95,11 @@ none
 - Publish dependency assertion: 通过，`publish-tag-release.needs` 与 `publish-debug-latest.needs` 一致。
 - `git diff --check`: 通过，只有 Windows CRLF 提示。
 - `$env:GOWORK='off'; go test ./... -count=1`: 通过。
+- GitHub Actions `workflow_dispatch` run `26801062682`: 通过。
+  - Run: `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26801062682`
+  - Head SHA: `3ac9875b0be92398e58a321f0a38247d2f22412d`
+  - 通过 jobs: Go CLI、Windows debug、Linux debug、macOS debug、Android debug、iOS simulator debug、Web debug。
+  - `Publish tag release` 和 `Publish debug-latest` 均 skipped，符合 `workflow_dispatch` 不发布的预期。
 
 未在本地证明：
 
