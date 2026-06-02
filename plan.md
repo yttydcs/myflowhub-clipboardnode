@@ -10,7 +10,7 @@ Allow `vX.Y.Z` tag releases to build and publish only platforms whose production
 - Worktree: `D:\project\MyFlowHub3\worktrees\chore-conditional-release-builds\MyFlowHub-ClipboardNode`
 - Branch: `chore/conditional-release-builds`
 - Base: `master`
-- Current stage: `3.3 - Code Review`
+- Current stage: `4 - Change Archive`
 - GitHub Actions secrets currently configured for Android only:
   - `ANDROID_KEYSTORE_BASE64`
   - `ANDROID_KEYSTORE_PASSWORD`
@@ -127,7 +127,7 @@ No sub-agent delegation. The write set is small, tightly coupled, and limited to
 ## Stage Gate
 
 阻塞：否
-进入 3.3
+进入 4
 
 ## Stage 3.2 Implementation Summary
 
@@ -146,3 +146,28 @@ No sub-agent delegation. The write set is small, tightly coupled, and limited to
 - 稳定性与安全: 通过. Unsigned production assets are not generated for unconfigured signed platforms; enabled jobs must still succeed before publishing.
 - 测试覆盖情况: 通过. YAML structure, bash syntax, PowerShell syntax, capability simulations, publish asset simulation, and `git diff --check` passed. `actionlint` was not available locally.
 - 子Agent治理与审计: 通过. Parallelism was assessed; no sub-agent was dispatched.
+
+## Stage 4 Change Archive
+
+Using `$m-docs`:
+
+- Requirements impact: `none`
+- Specs impact: `none`
+- Lessons impact: `none`
+- Change archive: `docs/change/2026-06-02_conditional-release-builds.md`
+- Index updated: `docs/change/README.md`
+
+Validation:
+
+- Python/PyYAML workflow structural check: passed.
+- Bash syntax check for release workflow scripts: passed, 16 scripts.
+- PowerShell parser syntax check for release workflow scripts: passed, 2 scripts.
+- Capability simulation for Android-only tag release secrets: passed.
+- Capability simulation for manual dry-run without secrets: passed.
+- Publish asset simulation with Linux/Web/Android assets only: passed.
+- `git diff --check`: passed.
+- Hosted `release.yml` dry-run on branch `chore/conditional-release-builds`: passed.
+  - Run: `https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26824592121`
+  - Result: `success`
+  - `Publish GitHub Release`: skipped as expected for manual dry-run.
+  - `gh release view v0.0.0`: absent.
