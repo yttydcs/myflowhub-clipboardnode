@@ -160,13 +160,17 @@ bindings lessons。
 
 待补充验证:
 
-- hosted `workflow_dispatch` dry-run for `release.yml`
+- hosted `workflow_dispatch` dry-run for `release.yml` after `release.yml` exists on `master`
 
 未在本地证明:
 
 - 真实 tag push 后的 GitHub Release 创建需要用户批准推送 `vX.Y.Z` tag。
 - Windows/macOS/iOS production signing/notarization/export 需要私有证书和 GitHub Secrets。
 - Apple 平台 release build 只能在 macOS runner 上验证，本地 Windows SDK 不提供 iOS/macOS build subcommands。
+- Hosted `workflow_dispatch` dry-run 已尝试执行：
+  - `gh workflow run release.yml --repo yttydcs/myflowhub-clipboardnode --ref chore/tag-release-ci -f release_tag=v0.0.0`
+  - GitHub 返回 `HTTP 404: workflow release.yml not found on the default branch`
+  - 原因是 `release.yml` 是本分支新增 workflow，尚未存在于默认分支；需要合并到 `master` 后再 dispatch 验证。
 
 ## 潜在影响
 

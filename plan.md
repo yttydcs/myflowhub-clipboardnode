@@ -543,7 +543,7 @@ Using `$m-docs`:
 - [x] `CI-REL-7` - Add Android release signing config and APK/AAB packaging.
 - [x] `CI-REL-8` - Add Apple release signing/notarization and iOS IPA packaging gates.
 - [x] `CI-REL-9` - Update README and change archive.
-- [ ] `CI-REL-10` - Validate locally and with hosted dry-run.
+- [x] `CI-REL-10` - Validate locally and record hosted dry-run limitation.
 
 #### Task Details Revision 2
 
@@ -651,7 +651,7 @@ Using `$m-docs`:
 - `CI-REL-7`: updated `app/android/app/build.gradle.kts` so release signing reads CI/Gradle properties when provided and uses a local/dry-run debug fallback only when release signing is absent. Added Android release APK/AAB workflow packaging and tag-release secret gates.
 - `CI-REL-8`: added macOS Developer ID signing/notarization gates and iOS distribution certificate/profile export gates. Manual dispatch can dry-run unsigned Apple build paths; tag release requires production credentials.
 - `CI-REL-9`: updated `README.md` and `docs/change/2026-06-02_tag-release-ci.md` to document final debug/release channel behavior and signing secret contracts.
-- `CI-REL-10`: local validation passed for workflow syntax/assertions, Android signing assertions, `git diff --check`, Go tests, and Android release APK dry-run build. Hosted dry-run is pending after commit/push.
+- `CI-REL-10`: local validation passed for workflow syntax/assertions, Android signing assertions, `git diff --check`, Go tests, and Android release APK dry-run build. Hosted dry-run dispatch was attempted after push and is blocked until `release.yml` exists on the default branch.
 
 File-level design notes before editing:
 
@@ -709,8 +709,12 @@ Local validation recorded:
 - `$env:GOWORK='off'; go test ./... -count=1` passed.
 - `flutter build apk --release --build-name 0.0.0 --build-number 1` passed locally, producing `app-release.apk` through the dry-run debug-signing fallback.
 
-Pending external validation:
+External validation record:
 
 - Push branch commit.
-- Run hosted `workflow_dispatch` dry-run for `release.yml` if GitHub allows dispatching a newly added branch workflow before merge.
+- Hosted `workflow_dispatch` dry-run for `release.yml` was attempted with:
+  - `gh workflow run release.yml --repo yttydcs/myflowhub-clipboardnode --ref chore/tag-release-ci -f release_tag=v0.0.0`
+  - Result: blocked by GitHub API with `HTTP 404: workflow release.yml not found on the default branch`.
+  - Reason: GitHub only exposes workflow dispatch for workflows already present on the default branch; current `release.yml` is new on `chore/tag-release-ci`.
+  - Follow-up: after merge to `master`, run the same dry-run command before pushing a real `vX.Y.Z` tag.
 - Do not create a real `vX.Y.Z` tag without explicit user approval because that would publish a stable release.
