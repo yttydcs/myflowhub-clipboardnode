@@ -38,13 +38,16 @@ provider/reference is configured.
 
 ## Release Channels
 
+### Debug Preview
+
 The latest automated all-platform debug build is published as a prerelease:
 
 ```text
 https://github.com/yttydcs/myflowhub-clipboardnode/releases/tag/debug-latest
 ```
 
-Each `master` push refreshes the movable `debug-latest` tag after all platform jobs pass and uploads:
+Each `master` push refreshes the movable `debug-latest` tag after all platform
+debug jobs pass and uploads:
 
 - `myflowhub-clipboardnode-windows-debug.zip`: full Flutter Windows debug runner directory.
 - `myflowhub-clipboardnode-linux-debug.tar.gz`: Flutter Linux debug bundle.
@@ -65,15 +68,70 @@ on macOS before building. Without that generated framework, the app still
 builds with an explicit stub bridge and reports that the native binding is
 missing.
 
-Manual workflow runs and pull requests still build the same artifacts in GitHub Actions, but only `master` pushes update the prerelease.
+Manual `debug-latest` workflow runs and pull requests still build the same
+artifacts in GitHub Actions, but only `master` pushes update the prerelease.
+The movable `debug-latest` tag is ignored by the version release workflow.
 
-Pushing a version tag that starts with `v`, such as `v1.2.3`, runs the same
-all-platform validation and publishes a GitHub Release for that exact tag. The
-movable `debug-latest` tag is not treated as a version release trigger.
+### Version Releases
 
-Current release assets are unsigned preview/debug artifacts, not production
-distribution packages. Production signing, notarization, app-store packaging,
-and installer generation require a later dedicated release workflow.
+Pushing a version tag that matches `vX.Y.Z`, such as `v1.2.3`, runs
+`.github/workflows/release.yml`. That workflow builds release-mode assets and
+publishes a stable GitHub Release for the exact tag only after all required
+assets are present.
+
+Release assets are:
+
+- `myflowhub-clipboardnode-windows-release.zip`: Flutter Windows release runner directory with the desktop bridge helper.
+- `myflowhub-clipboardnode-linux-release.tar.gz`: Flutter Linux release bundle with the desktop bridge helper.
+- `myflowhub-clipboardnode-macos-release.zip`: Flutter macOS release `.app`, signed and notarized when tag-release secrets are configured.
+- `myflowhub-clipboardnode-android-release.apk`: Android release APK.
+- `myflowhub-clipboardnode-android-release.aab`: Android release app bundle.
+- `myflowhub-clipboardnode-ios-release.ipa`: iOS release IPA exported with a distribution certificate and provisioning profile.
+- `myflowhub-clipboardnode-web-release.zip`: Flutter Web release bundle.
+- `clipboardnode-windows-amd64.exe`: Windows Go CLI helper.
+- `clipboardnode-bridge-windows-amd64.exe`: Windows Go stdio bridge helper.
+- `myflowhub-clipboardnode-release-checksums.txt`: SHA-256 checksums for release assets.
+
+Manual `release.yml` workflow runs are dry-runs: they validate release build
+paths with a supplied `release_tag` input but do not publish a GitHub Release.
+
+Real tag releases require signing secrets. If a required secret set is missing
+on a `vX.Y.Z` tag push, the affected platform job fails before a misleading
+release asset is published.
+
+Required Android secrets:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Required Windows signing secrets:
+
+- `WINDOWS_CODESIGN_PFX_BASE64`
+- `WINDOWS_CODESIGN_PFX_PASSWORD`
+- `WINDOWS_CODESIGN_TIMESTAMP_URL` (optional; defaults to DigiCert timestamping)
+
+Required macOS signing/notarization secrets:
+
+- `MACOS_DEVELOPER_ID_CERT_BASE64`
+- `MACOS_DEVELOPER_ID_CERT_PASSWORD`
+- `MACOS_DEVELOPER_IDENTITY`
+- `APPLE_NOTARY_KEY_ID`
+- `APPLE_NOTARY_ISSUER_ID`
+- `APPLE_NOTARY_KEY_BASE64`
+
+Required iOS signing/export secrets:
+
+- `IOS_DISTRIBUTION_CERT_BASE64`
+- `IOS_DISTRIBUTION_CERT_PASSWORD`
+- `IOS_PROVISIONING_PROFILE_BASE64`
+- `IOS_DEVELOPMENT_TEAM`
+- `IOS_EXPORT_METHOD` (optional; defaults to `ad-hoc`)
+- `IOS_CODE_SIGN_IDENTITY` (optional; defaults to `Apple Distribution`)
+
+Store uploads and installer generation are not part of the current release
+workflow.
 
 ## Scope
 

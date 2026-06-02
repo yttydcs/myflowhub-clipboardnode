@@ -6,7 +6,7 @@
 - Branch: `chore/tag-release-ci`
 - Base: `master` at `285ce22`
 - Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
-- Current Stage: `3.1 - Planning`
+- Current Stage: `4 - Change Archive / release-mode revision`
 
 ## Stage Records
 
@@ -313,3 +313,404 @@ Stage 3.3 review result: passed.
   - `docs/change/README.md`
 
 Workflow is ready for branch commit, push, remote CI validation, and user decision on workflow end after hosted validation.
+
+## Scope Revision - Release-mode Production Packages
+
+Reason: after the first tag-release implementation, the user clarified that a
+version tag must not publish the same unsigned debug preview assets. The
+workflow is rolling back the intermediate "tag release reuses debug assets"
+approach and replacing it with a dedicated release-mode pipeline.
+
+Rollback trace:
+
+- Supersede `CI-REL-1` publish-on-tag behavior inside `debug-latest.yml`.
+- Keep `debug-latest` as the preview/debug prerelease channel only.
+- Add a new `release.yml` workflow for `vX.Y.Z` version tags.
+- Update docs/archive so the release contract is not described as production
+  signed until the required platform signing secrets are present.
+
+### Stage 1 - Requirements Analysis Revision 2
+
+#### Goal
+
+Keep `debug-latest` for debug previews and implement a separate tag-driven
+release workflow that builds release-mode packages for desktop, mobile, web,
+and Go helper assets.
+
+#### Scope
+
+- Must:
+  - Keep `debug-latest` behavior on `master` pushes.
+  - Prevent `debug-latest` or any non-version tag from publishing a stable release.
+  - Build release-mode Flutter assets for Windows, Linux, macOS, Android, iOS, and Web.
+  - Build Go helper executables used by the desktop packaging path.
+  - Publish a stable GitHub Release only for pushed version tags matching `vX.Y.Z`.
+  - Validate and fail explicitly when a required release asset is missing.
+  - Provide an Android release signing configuration driven by CI secrets.
+  - Define the required CI secrets for Android, Windows signing, macOS signing/notarization, and iOS IPA export.
+  - Keep `workflow_dispatch` usable for dry-run validation without creating a GitHub Release.
+- Optional:
+  - Sign Windows executables and macOS apps when the corresponding secrets are configured.
+  - Produce Android APK and AAB assets.
+- Not doing:
+  - App Store / Play Store upload.
+  - MSI/DMG installer generation.
+  - Runtime clipboard, MyFlowHub protocol, or UI behavior changes.
+  - Creating or pushing a real `v*` tag from this workflow without explicit user approval.
+
+#### Use Cases
+
+1. Maintainer pushes `master`; debug CI refreshes `debug-latest` only.
+2. Maintainer pushes `v1.2.3`; release CI builds release-mode platform assets and publishes Release `v1.2.3`.
+3. Maintainer runs `release.yml` manually on a branch; CI validates release build paths but publish is skipped.
+4. Android release secrets are missing during a tag release; Android release job fails before a misleading APK/AAB is published.
+5. iOS signing/profile secrets are missing during a tag release; iOS release job fails before a fake production IPA is published.
+
+#### Functional Requirements
+
+- `.github/workflows/debug-latest.yml` must ignore tag publishing and contain no stable release publish job.
+- `.github/workflows/release.yml` must trigger on `push.tags: v*` and `workflow_dispatch`.
+- The release workflow must derive `build-name` from the tag after removing the leading `v`.
+- The release workflow must fail non-`vX.Y.Z` release tags early.
+- The release workflow must publish only on tag push, not on manual branch dispatch.
+- Android Gradle release signing must use release keystore values when provided and retain a clear local fallback for non-publishing dry runs.
+- Release notes must include tag, commit SHA, run URL, release-mode assets, and signing/notarization status.
+
+#### Non-functional Requirements
+
+- Keep global GitHub Actions permissions read-only; publish job opts into `contents: write`.
+- Avoid silent unsigned production claims.
+- Keep the existing PowerShell native exit checks.
+- Keep platform build failures local to their jobs and preserve build logs where useful.
+- Keep changes narrow: workflow files, Android signing config, README, plan/change docs.
+
+#### Inputs / Outputs
+
+- Inputs:
+  - `push` tag `vX.Y.Z`.
+  - Manual `workflow_dispatch` dry-run `release_tag`.
+  - GitHub Secrets / Variables for signing.
+  - Generated gomobile AAR/XCFramework artifacts.
+- Outputs:
+  - GitHub Actions release artifacts.
+  - Stable GitHub Release for pushed `vX.Y.Z` tags.
+  - Release-mode archives: Windows zip, Linux tar.gz, macOS zip, Android APK/AAB, iOS IPA, Web zip, Windows Go helper executables.
+
+#### Edge Cases
+
+- Non-SemVer tag: release workflow fails before builds.
+- Missing signing secret on tag release: affected signed platform job fails explicitly.
+- Manual dispatch without signing secrets: dry-run release-mode builds can proceed where platform tooling permits, but publish is skipped.
+- Re-run for an existing tag: release publish updates notes and uploads with `--clobber`.
+
+#### Acceptance Criteria
+
+- YAML syntax parses for both workflows.
+- `debug-latest.yml` no longer has `publish-tag-release`.
+- `release.yml` exists with release-mode build jobs and a tag-only publish gate.
+- Android release signing is configurable by CI secrets and no longer hardcodes debug signing as the only release path.
+- README documents debug and release channels, tag format, and signing secrets.
+- Local Go tests and workflow assertions pass.
+
+#### Risks
+
+- Production signing is secret-dependent and cannot be fully proven locally.
+- macOS notarization and iOS IPA export depend on Apple account/certificate state.
+- Android release APK/AAB can build locally with debug fallback for dry-run, but a tag release should require real signing secrets.
+- A real tag push would publish a stable release; avoid creating one during validation unless the user approves.
+
+#### Issue List
+
+- None.
+
+### Stage 2 - Architecture Design Revision 2
+
+#### Overall Solution
+
+Split preview and release channels. `debug-latest.yml` returns to the existing
+debug-only channel. A new `release.yml` owns version tag publishing and builds
+release-mode artifacts with explicit signing gates for platforms that need
+production credentials.
+
+#### Alternatives Considered
+
+- Keep one workflow and add release-mode branches inside it:
+  - Rejected because the debug workflow is already large and mixing debug/release asset paths increases drift and publish-risk.
+- Publish unsigned release-mode assets if secrets are missing:
+  - Rejected for tag releases because the user explicitly asked to move beyond unsigned debug preview assets.
+- Require all signing secrets for manual dry-runs:
+  - Rejected because branch validation should prove CI structure without forcing release credentials into every test run.
+
+#### Module Responsibilities
+
+- `.github/workflows/debug-latest.yml`: debug preview build and `debug-latest` prerelease only.
+- `.github/workflows/release.yml`: release tag validation, release-mode builds, signing/notarization gates, asset validation, and stable release publishing.
+- `app/android/app/build.gradle.kts`: Android release signing config driven by Gradle properties or environment variables.
+- `README.md`: release channel behavior, tag format, and signing secret contract.
+- `docs/change`: workflow archive and validation record.
+
+#### Data / Call Flow
+
+1. Tag push `refs/tags/vX.Y.Z` starts `release.yml`.
+2. `prepare-release` validates tag format and exposes `release_tag`, `build_name`, `build_number`, and publish mode.
+3. Platform jobs build release-mode artifacts and package `build-info.txt`.
+4. Signed platforms check secrets on tag releases and fail explicitly if required credentials are absent.
+5. `publish-release` downloads artifacts, validates exact asset names, creates/updates the GitHub Release, and uploads with `--clobber`.
+6. Manual `workflow_dispatch` follows steps 2-4 but skips `publish-release`.
+
+#### Interface Drafts
+
+- Release tag pattern: `vX.Y.Z`, for example `v1.2.3`.
+- Manual dry-run input: `release_tag`, default `v0.0.0`.
+- Android secrets:
+  - `ANDROID_KEYSTORE_BASE64`
+  - `ANDROID_KEYSTORE_PASSWORD`
+  - `ANDROID_KEY_ALIAS`
+  - `ANDROID_KEY_PASSWORD`
+- Windows signing secrets:
+  - `WINDOWS_CODESIGN_PFX_BASE64`
+  - `WINDOWS_CODESIGN_PFX_PASSWORD`
+  - optional `WINDOWS_CODESIGN_TIMESTAMP_URL`
+- macOS signing/notarization secrets:
+  - `MACOS_DEVELOPER_ID_CERT_BASE64`
+  - `MACOS_DEVELOPER_ID_CERT_PASSWORD`
+  - `MACOS_DEVELOPER_IDENTITY`
+  - `APPLE_NOTARY_KEY_ID`
+  - `APPLE_NOTARY_ISSUER_ID`
+  - `APPLE_NOTARY_KEY_BASE64`
+- iOS signing/export secrets:
+  - `IOS_DISTRIBUTION_CERT_BASE64`
+  - `IOS_DISTRIBUTION_CERT_PASSWORD`
+  - `IOS_PROVISIONING_PROFILE_BASE64`
+  - `IOS_DEVELOPMENT_TEAM`
+  - optional `IOS_EXPORT_METHOD`
+
+#### Error Handling and Safety
+
+- Fail early on non-`vX.Y.Z` tag names.
+- Fail tag releases when required signing/export secrets are missing.
+- Keep dry-run `workflow_dispatch` publish-disabled.
+- Validate all required release assets before creating/updating release notes.
+- Never use user-provided release tag for automatic tag push; only `github.ref_name`.
+
+#### Performance and Testing Strategy
+
+- Debug CI cost is unchanged because tag release work moves to `release.yml`.
+- Tag release cost is full-platform release build plus signing/notarization.
+- Validate locally with YAML parse, job/asset assertions, Gradle signing config assertions, `git diff --check`, and Go tests.
+- Remote validation uses `workflow_dispatch` on the branch, with publish skipped.
+
+#### Extensibility Design Points
+
+- Installer generation can be added as separate jobs without changing the release publish contract.
+- Store uploads can depend on the signed APK/AAB/IPA jobs later.
+- Strict SemVer variants can be added by changing only `prepare-release`.
+
+#### Issue List
+
+- None.
+
+### Stage 3.1 - Planning Revision 2
+
+#### Project Goal and Current State
+
+Goal: replace the intermediate debug-asset tag release with a dedicated
+release-mode package workflow while keeping `debug-latest` unchanged for debug
+preview users.
+
+Current state: branch `chore/tag-release-ci` contains the first tag-release
+implementation and remote proof for debug workflow dispatch. This revision
+will supersede that implementation before workflow closeout.
+
+#### Docs Governance Routing Decision
+
+Using `$m-docs`:
+
+- Requirements impact: none
+- Specs impact: none
+- Related requirements: `docs/requirements/clipboard-sync.md`
+- Related specs: `docs/specs/clipboard-sync.md`
+- Related lessons:
+  - `docs/lessons/debug-latest-ci-native-exit-flutter-material.md`
+  - `docs/lessons/gomobile-mobile-bindings.md`
+- Stable product requirements/specs do not change because the release workflow changes packaging and CI/CD only.
+- The existing `docs/change/2026-06-02_tag-release-ci.md` archive should be updated for the expanded scope; no new lessons are expected unless validation exposes a reusable failure mode.
+
+#### Executable Task List Revision 2
+
+- [x] `CI-REL-5` - Separate debug preview and release workflows.
+- [x] `CI-REL-6` - Build desktop, web, and Go release-mode assets.
+- [x] `CI-REL-7` - Add Android release signing config and APK/AAB packaging.
+- [x] `CI-REL-8` - Add Apple release signing/notarization and iOS IPA packaging gates.
+- [x] `CI-REL-9` - Update README and change archive.
+- [ ] `CI-REL-10` - Validate locally and with hosted dry-run.
+
+#### Task Details Revision 2
+
+##### CI-REL-5 - Separate debug preview and release workflows
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: keep `debug-latest.yml` debug-only and create a dedicated `release.yml`.
+- Files / Modules: `.github/workflows/debug-latest.yml`, `.github/workflows/release.yml`
+- Write Set: workflow trigger/publish structure.
+- Acceptance: debug workflow has no tag release publish job; release workflow triggers on `v*` tags and manual dry-runs.
+- Test Points: YAML parse and job/trigger assertions.
+- Rollback: delete `release.yml` and restore previous debug workflow.
+
+##### CI-REL-6 - Build desktop, web, and Go release-mode assets
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: produce release-mode Windows, Linux, macOS, Web, and Windows Go helper assets.
+- Files / Modules: `.github/workflows/release.yml`
+- Write Set: release build jobs and packaging scripts inside workflow.
+- Acceptance: release workflow packages exact required desktop/web/Go asset names and build metadata.
+- Test Points: workflow assertions for `--release`, package paths, and required assets.
+- Rollback: remove affected release jobs.
+
+##### CI-REL-7 - Add Android release signing config and APK/AAB packaging
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: allow signed Android release APK/AAB from CI secrets while preserving dry-run fallback.
+- Files / Modules: `app/android/app/build.gradle.kts`, `.github/workflows/release.yml`
+- Write Set: Gradle release signing config and Android release job.
+- Acceptance: tag releases require Android signing secrets; APK and AAB assets are packaged.
+- Test Points: Gradle config assertions and workflow secret-gate assertions.
+- Rollback: restore debug-signing release block and remove Android release job.
+
+##### CI-REL-8 - Add Apple release signing/notarization and iOS IPA packaging gates
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: build macOS release app with optional notarization path and build signed iOS IPA when secrets are configured.
+- Files / Modules: `.github/workflows/release.yml`
+- Write Set: macOS release job and iOS release job.
+- Acceptance: tag release requires Apple signing/export secrets; dry-run can validate unsigned release build paths where possible.
+- Test Points: workflow assertions for secret gates, `flutter build macos --release`, iOS XCFramework generation, and IPA asset path.
+- Rollback: remove Apple release jobs.
+
+##### CI-REL-9 - Update README and change archive
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: document final debug/release behavior and CI secret contract.
+- Files / Modules: `README.md`, `docs/change/2026-06-02_tag-release-ci.md`, `docs/change/README.md`
+- Write Set: release documentation and archive.
+- Acceptance: docs no longer claim tag releases publish debug assets; signing requirements are discoverable.
+- Test Points: final read-through.
+- Rollback: revert documentation edits.
+
+##### CI-REL-10 - Validate locally and with hosted dry-run
+
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/chore-tag-release-ci/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: prove workflow syntax and non-publishing dry-run behavior before workflow closeout.
+- Files / Modules: validation only except fixes.
+- Write Set: none expected.
+- Acceptance: local assertions and Go tests pass; hosted `workflow_dispatch` run passes or any credential-dependent limitation is explicitly recorded.
+- Test Points: YAML parse, assertions, `git diff --check`, `GOWORK=off go test ./... -count=1`, optional `gh workflow run release.yml`.
+- Rollback: fix or revert failing tasks.
+
+#### Dependencies
+
+- GitHub Actions hosted runners for Windows, Linux, macOS.
+- GitHub Secrets for production signing on real tag releases.
+- GitHub CLI for hosted dry-run validation.
+
+#### Risks and Notes
+
+- Codesigning/notarization cannot be proven locally without private certificates.
+- A manual dry-run proves build structure, not production credential validity.
+- iOS App Store / TestFlight upload remains outside this workflow.
+
+#### Parallelism Assessment Revision 2
+
+- Parallelism available: low.
+- Rationale: release workflow asset names, docs, and Gradle signing config are tightly coupled; splitting implementation would risk divergent signing gates and asset validation.
+- Sub-agent use: none.
+
+#### Issue List
+
+- None.
+
+阻塞：否
+进入 3.2
+
+### Stage 3.2 - Implementation Summary Revision 2
+
+- `CI-REL-5`: restored `.github/workflows/debug-latest.yml` to debug-only behavior with `tags-ignore: "**"` and removed the intermediate `publish-tag-release` job. Added `.github/workflows/release.yml` as the dedicated version release workflow.
+- `CI-REL-6`: added release-mode Windows, Linux, macOS, Web, and Windows Go helper packaging jobs. Release assets use `*-release` names and include build metadata.
+- `CI-REL-7`: updated `app/android/app/build.gradle.kts` so release signing reads CI/Gradle properties when provided and uses a local/dry-run debug fallback only when release signing is absent. Added Android release APK/AAB workflow packaging and tag-release secret gates.
+- `CI-REL-8`: added macOS Developer ID signing/notarization gates and iOS distribution certificate/profile export gates. Manual dispatch can dry-run unsigned Apple build paths; tag release requires production credentials.
+- `CI-REL-9`: updated `README.md` and `docs/change/2026-06-02_tag-release-ci.md` to document final debug/release channel behavior and signing secret contracts.
+- `CI-REL-10`: local validation passed for workflow syntax/assertions, Android signing assertions, `git diff --check`, Go tests, and Android release APK dry-run build. Hosted dry-run is pending after commit/push.
+
+File-level design notes before editing:
+
+- Debug preview and stable release are separate workflows to prevent debug artifacts from being described as production release packages.
+- Manual `workflow_dispatch` for `release.yml` intentionally does not publish GitHub Releases.
+- Real tag release fails fast when required signing secrets are absent, preventing misleading unsigned production assets.
+- Android Gradle fallback remains only to support local/manual dry-runs; the workflow guards tag release publishing.
+
+Parallelism assessment:
+
+- Parallelism available: low.
+- Sub-agent use: none.
+- Rationale: release workflow asset names, publish validation, signing gates, README, plan, and archive are coupled; splitting implementation would increase drift risk.
+
+### Stage 3.3 - Code Review Revision 2
+
+Stage 3.3 review result: passed.
+
+- 需求覆盖: 通过. `debug-latest` is preserved as debug preview; pushed `vX.Y.Z` tags use a dedicated release-mode workflow.
+- 架构合理性: 通过. Debug and release publish paths are separated; release publish depends on all release build jobs.
+- 性能风险: 通过. Debug CI cost is unchanged; release workflow runs only on version tag push or manual dry-run.
+- 可读性与一致性: 通过. Release assets use consistent `*-release` names and publish validation uses one explicit required asset list.
+- 可扩展性与配置化: 通过. Signing secrets are explicit per platform; installer/store uploads can be added as later jobs.
+- 稳定性与安全: 通过. Global permissions remain read-only; publish job opts into `contents: write`; tag release fails when signing secrets are missing.
+- 测试覆盖情况: 通过 for local scope. YAML parse, workflow assertions, Android signing assertions, `git diff --check`, `GOWORK=off go test ./... -count=1`, and Android release APK dry-run build passed.
+- 子Agent治理与审计: 通过. Parallelism was assessed; no sub-agent was dispatched.
+
+阻塞：否
+进入 4
+
+### Stage 4 - Change Archive Revision 2
+
+使用 `$m-docs` 校验 change/lessons 路由、requirements/specs 影响和索引维护。
+
+- Requirements impact: `none`; release automation and signing gates do not change `docs/requirements/clipboard-sync.md`.
+- Specs impact: `none`; release automation and packaging do not change `docs/specs/clipboard-sync.md`.
+- Lessons impact: `none`; no new reusable failure mode emerged.
+- Change archive: `docs/change/2026-06-02_tag-release-ci.md`.
+- Related requirements:
+  - `docs/requirements/clipboard-sync.md`
+- Related specs:
+  - `docs/specs/clipboard-sync.md`
+- Related lessons:
+  - `docs/lessons/debug-latest-ci-native-exit-flutter-material.md`
+  - `docs/lessons/gomobile-mobile-bindings.md`
+- Indexes updated:
+  - No new change index entry was needed because the existing archive path stayed the same.
+
+Local validation recorded:
+
+- Python/PyYAML parsed `.github/workflows/debug-latest.yml` and `.github/workflows/release.yml`.
+- Workflow assertions passed for debug-only tag ignore, release job set, publish gate, required dependencies, release-mode build commands, signing gates, and asset names.
+- Android Gradle signing assertions passed.
+- `git diff --check` passed.
+- `$env:GOWORK='off'; go test ./... -count=1` passed.
+- `flutter build apk --release --build-name 0.0.0 --build-number 1` passed locally, producing `app-release.apk` through the dry-run debug-signing fallback.
+
+Pending external validation:
+
+- Push branch commit.
+- Run hosted `workflow_dispatch` dry-run for `release.yml` if GitHub allows dispatching a newly added branch workflow before merge.
+- Do not create a real `vX.Y.Z` tag without explicit user approval because that would publish a stable release.

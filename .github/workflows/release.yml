@@ -1,0 +1,1062 @@
+name: release
+
+"on":
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Dry-run release tag used for build metadata. Manual runs never publish."
+        required: true
+        default: "v0.0.0"
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.41.9"
+
+jobs:
+  prepare-release:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+      build_name: ${{ steps.meta.outputs.build_name }}
+      build_number: ${{ steps.meta.outputs.build_number }}
+      publish_release: ${{ steps.meta.outputs.publish_release }}
+
+    steps:
+      - name: Validate release tag
+        id: meta
+        shell: bash
+        env:
+          INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag || 'v0.0.0' }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+            publish_release="true"
+          else
+            tag="${INPUT_RELEASE_TAG}"
+            publish_release="false"
+          fi
+
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vX.Y.Z, got: ${tag}" >&2
+            exit 1
+          fi
+
+          build_name="${tag#v}"
+          build_number="${GITHUB_RUN_NUMBER}"
+
+          {
+            echo "release_tag=${tag}"
+            echo "build_name=${build_name}"
+            echo "build_number=${build_number}"
+            echo "publish_release=${publish_release}"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "## Release Metadata"
+            echo
+            echo "- tag: ${tag}"
+            echo "- build_name: ${build_name}"
+            echo "- build_number: ${build_number}"
+            echo "- publish_release: ${publish_release}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build-windows-release:
+    name: Build Windows release
+    needs: prepare-release
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+      RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+      PUBLISH_RELEASE: ${{ needs.prepare-release.outputs.publish_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Validate Windows signing secrets
+        shell: pwsh
+        env:
+          WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          WINDOWS_CODESIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:PUBLISH_RELEASE -ne "true") {
+            "Manual dry-run: Windows code signing secrets are not required." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PFX_BASE64)) { $missing += "WINDOWS_CODESIGN_PFX_BASE64" }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PFX_PASSWORD)) { $missing += "WINDOWS_CODESIGN_PFX_PASSWORD" }
+          if ($missing.Count -gt 0) {
+            throw "Missing Windows code signing secrets for tag release: $($missing -join ', ')"
+          }
+
+      - name: Build and package Windows release app
+        shell: pwsh
+        env:
+          WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          WINDOWS_CODESIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PFX_PASSWORD }}
+          WINDOWS_CODESIGN_TIMESTAMP_URL: ${{ secrets.WINDOWS_CODESIGN_TIMESTAMP_URL }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (Test-Path -LiteralPath "dist") {
+            Remove-Item -LiteralPath "dist" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+
+          $env:GOWORK = "off"
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { throw "go test failed with exit code $LASTEXITCODE" }
+
+          go build -o "dist/clipboardnode-windows-amd64.exe" ./cmd/clipboardnode
+          if ($LASTEXITCODE -ne 0) { throw "go build clipboardnode failed with exit code $LASTEXITCODE" }
+
+          go build -o "dist/clipboardnode-bridge-windows-amd64.exe" ./cmd/clipboardnode-bridge
+          if ($LASTEXITCODE -ne 0) { throw "go build clipboardnode-bridge failed with exit code $LASTEXITCODE" }
+
+          Set-Location app
+          flutter --version
+          if ($LASTEXITCODE -ne 0) { throw "flutter --version failed with exit code $LASTEXITCODE" }
+
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw "flutter pub get failed with exit code $LASTEXITCODE" }
+
+          flutter analyze
+          if ($LASTEXITCODE -ne 0) { throw "flutter analyze failed with exit code $LASTEXITCODE" }
+
+          flutter test
+          if ($LASTEXITCODE -ne 0) { throw "flutter test failed with exit code $LASTEXITCODE" }
+
+          flutter build windows --release --build-name $env:RELEASE_BUILD_NAME --build-number $env:RELEASE_BUILD_NUMBER
+          if ($LASTEXITCODE -ne 0) { throw "flutter build windows --release failed with exit code $LASTEXITCODE" }
+          Set-Location ..
+
+          $runnerDir = Join-Path $PWD "app/build/windows/x64/runner/Release"
+          if (-not (Test-Path -LiteralPath $runnerDir)) {
+            throw "Flutter Windows release output was not found: $runnerDir"
+          }
+
+          $appExe = Get-ChildItem -LiteralPath $runnerDir -Filter "*.exe" -File | Select-Object -First 1
+          if ($null -eq $appExe) {
+            throw "Flutter Windows release output does not contain an executable: $runnerDir"
+          }
+
+          $packageRoot = Join-Path $PWD "dist/myflowhub-clipboardnode-windows-release"
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          Copy-Item -Path "$runnerDir/*" -Destination $packageRoot -Recurse -Force
+          Copy-Item -LiteralPath "dist/clipboardnode-bridge-windows-amd64.exe" -Destination (Join-Path $packageRoot "clipboardnode-bridge.exe") -Force
+
+          $buildInfo = @(
+            "repo=$env:GITHUB_REPOSITORY"
+            "tag=$env:RELEASE_TAG"
+            "version=$env:RELEASE_BUILD_NAME"
+            "build_number=$env:RELEASE_BUILD_NUMBER"
+            "commit=$env:GITHUB_SHA"
+            "run_id=$env:GITHUB_RUN_ID"
+            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
+            "platform=windows"
+            "app_exe=$($appExe.Name)"
+            "publish_release=$env:PUBLISH_RELEASE"
+          ) -join "`n"
+          Set-Content -LiteralPath (Join-Path $packageRoot "build-info.txt") -Value $buildInfo -Encoding utf8
+
+          if ($env:PUBLISH_RELEASE -eq "true") {
+            $pfxPath = Join-Path $env:RUNNER_TEMP "windows-codesign.pfx"
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_PFX_BASE64))
+
+            $signtool = Get-ChildItem -LiteralPath "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+              Where-Object { $_.FullName -match "\\x64\\signtool.exe$" } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if ($null -eq $signtool) {
+              throw "signtool.exe was not found in the Windows SDK."
+            }
+
+            $timestampUrl = $env:WINDOWS_CODESIGN_TIMESTAMP_URL
+            if ([string]::IsNullOrWhiteSpace($timestampUrl)) {
+              $timestampUrl = "http://timestamp.digicert.com"
+            }
+
+            $executables = @(
+              (Join-Path $PWD "dist/clipboardnode-windows-amd64.exe"),
+              (Join-Path $PWD "dist/clipboardnode-bridge-windows-amd64.exe")
+            )
+            $executables += Get-ChildItem -LiteralPath $packageRoot -Recurse -Filter "*.exe" -File | ForEach-Object { $_.FullName }
+
+            foreach ($exe in $executables) {
+              & $signtool.FullName sign /fd SHA256 /td SHA256 /tr $timestampUrl /f $pfxPath /p $env:WINDOWS_CODESIGN_PFX_PASSWORD $exe
+              if ($LASTEXITCODE -ne 0) { throw "signtool failed for $exe with exit code $LASTEXITCODE" }
+            }
+          }
+
+          $zipPath = Join-Path $PWD "dist/myflowhub-clipboardnode-windows-release.zip"
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath $zipPath -Force
+
+          foreach ($asset in @(
+            "dist/myflowhub-clipboardnode-windows-release.zip",
+            "dist/clipboardnode-windows-amd64.exe",
+            "dist/clipboardnode-bridge-windows-amd64.exe"
+          )) {
+            if (-not (Test-Path -LiteralPath $asset)) {
+              throw "Missing Windows release asset: $asset"
+            }
+          }
+
+          Get-ChildItem -LiteralPath "dist" -File | ForEach-Object {
+            "- $($_.Name) ($($_.Length) bytes)" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-windows-release
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/myflowhub-clipboardnode-windows-release.zip
+            dist/clipboardnode-windows-amd64.exe
+            dist/clipboardnode-bridge-windows-amd64.exe
+
+  build-linux-release:
+    name: Build Linux release
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+      RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+      PUBLISH_RELEASE: ${{ needs.prepare-release.outputs.publish_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux desktop dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build and package Linux release app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd app
+          flutter --version
+          flutter config --enable-linux-desktop
+          flutter pub get
+          cd ..
+
+          export GOWORK=off
+          go build -o app/clipboardnode-bridge ./cmd/clipboardnode-bridge
+
+          cd app
+          flutter build linux --release --build-name "${RELEASE_BUILD_NAME}" --build-number "${RELEASE_BUILD_NUMBER}"
+          cd ..
+
+          bundle_dir="app/build/linux/x64/release/bundle"
+          if [[ ! -d "${bundle_dir}" ]]; then
+            echo "Flutter Linux release bundle was not found: ${bundle_dir}" >&2
+            exit 1
+          fi
+          if [[ ! -f "${bundle_dir}/myflowhub_clipboard" ]]; then
+            echo "Flutter Linux release bundle does not contain the app binary" >&2
+            find "${bundle_dir}" -maxdepth 2 -type f -print >&2 || true
+            exit 1
+          fi
+
+          rm -rf dist
+          package_root="dist/myflowhub-clipboardnode-linux-release"
+          mkdir -p "${package_root}"
+          cp -a "${bundle_dir}/." "${package_root}/"
+          cp app/clipboardnode-bridge "${package_root}/clipboardnode-bridge"
+          {
+            echo "repo=${GITHUB_REPOSITORY}"
+            echo "tag=${RELEASE_TAG}"
+            echo "version=${RELEASE_BUILD_NAME}"
+            echo "build_number=${RELEASE_BUILD_NUMBER}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "platform=linux"
+            echo "app_binary=myflowhub_clipboard"
+            echo "publish_release=${PUBLISH_RELEASE}"
+          } > "${package_root}/build-info.txt"
+
+          tar -czf dist/myflowhub-clipboardnode-linux-release.tar.gz -C dist myflowhub-clipboardnode-linux-release
+          if [[ ! -f dist/myflowhub-clipboardnode-linux-release.tar.gz ]]; then
+            echo "Missing packaged Linux release archive" >&2
+            exit 1
+          fi
+          printf -- '- %s (%s bytes)\n' "myflowhub-clipboardnode-linux-release.tar.gz" "$(stat -c%s dist/myflowhub-clipboardnode-linux-release.tar.gz)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Linux release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-linux-release
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/myflowhub-clipboardnode-linux-release.tar.gz
+
+  build-macos-release:
+    name: Build macOS release
+    needs: prepare-release
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+      RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+      PUBLISH_RELEASE: ${{ needs.prepare-release.outputs.publish_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Validate macOS signing and notarization secrets
+        shell: bash
+        env:
+          MACOS_DEVELOPER_ID_CERT_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_CERT_BASE64 }}
+          MACOS_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERT_PASSWORD }}
+          MACOS_DEVELOPER_IDENTITY: ${{ secrets.MACOS_DEVELOPER_IDENTITY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ "${PUBLISH_RELEASE}" != "true" ]]; then
+            echo "Manual dry-run: macOS signing and notarization secrets are not required." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          missing=()
+          for name in \
+            MACOS_DEVELOPER_ID_CERT_BASE64 \
+            MACOS_DEVELOPER_ID_CERT_PASSWORD \
+            MACOS_DEVELOPER_IDENTITY \
+            APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID \
+            APPLE_NOTARY_KEY_BASE64; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing macOS signing/notarization secrets for tag release: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Build, sign, notarize, and package macOS release app
+        shell: bash
+        env:
+          MACOS_DEVELOPER_ID_CERT_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_CERT_BASE64 }}
+          MACOS_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERT_PASSWORD }}
+          MACOS_DEVELOPER_IDENTITY: ${{ secrets.MACOS_DEVELOPER_IDENTITY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          decode_base64() {
+            printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D
+          }
+
+          cd app
+          flutter --version
+          flutter config --enable-macos-desktop
+          flutter pub get
+          cd ..
+
+          export GOWORK=off
+          go build -o app/clipboardnode-bridge ./cmd/clipboardnode-bridge
+
+          cd app
+          flutter build macos --release --build-name "${RELEASE_BUILD_NAME}" --build-number "${RELEASE_BUILD_NUMBER}"
+          cd ..
+
+          app_dir="app/build/macos/Build/Products/Release/myflowhub_clipboard.app"
+          if [[ ! -d "${app_dir}" ]]; then
+            echo "Flutter macOS release app was not found: ${app_dir}" >&2
+            find app/build/macos -maxdepth 5 -type d -name "*.app" -print >&2 || true
+            exit 1
+          fi
+
+          mkdir -p "${app_dir}/Contents/Resources"
+          cp app/clipboardnode-bridge "${app_dir}/Contents/MacOS/clipboardnode-bridge"
+          {
+            echo "repo=${GITHUB_REPOSITORY}"
+            echo "tag=${RELEASE_TAG}"
+            echo "version=${RELEASE_BUILD_NAME}"
+            echo "build_number=${RELEASE_BUILD_NUMBER}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "platform=macos"
+            echo "app_bundle=myflowhub_clipboard.app"
+            echo "publish_release=${PUBLISH_RELEASE}"
+          } > "${app_dir}/Contents/Resources/build-info.txt"
+
+          rm -rf dist
+          mkdir -p dist
+
+          if [[ "${PUBLISH_RELEASE}" == "true" ]]; then
+            keychain="${RUNNER_TEMP}/macos-signing.keychain-db"
+            keychain_password="$(uuidgen)"
+            cert_path="${RUNNER_TEMP}/macos-developer-id.p12"
+            notary_key_path="${RUNNER_TEMP}/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+
+            decode_base64 "${MACOS_DEVELOPER_ID_CERT_BASE64}" > "${cert_path}"
+            decode_base64 "${APPLE_NOTARY_KEY_BASE64}" > "${notary_key_path}"
+
+            security create-keychain -p "${keychain_password}" "${keychain}"
+            security default-keychain -s "${keychain}"
+            security unlock-keychain -p "${keychain_password}" "${keychain}"
+            security set-keychain-settings -lut 21600 "${keychain}"
+            security import "${cert_path}" -k "${keychain}" -P "${MACOS_DEVELOPER_ID_CERT_PASSWORD}" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "${keychain_password}" "${keychain}"
+
+            codesign --force --deep --options runtime --timestamp \
+              --entitlements app/macos/Runner/Release.entitlements \
+              --sign "${MACOS_DEVELOPER_IDENTITY}" "${app_dir}"
+            codesign --verify --deep --strict --verbose=2 "${app_dir}"
+
+            notary_zip="dist/myflowhub-clipboardnode-macos-release-notary.zip"
+            ditto -c -k --sequesterRsrc --keepParent "${app_dir}" "${notary_zip}"
+            xcrun notarytool submit "${notary_zip}" \
+              --key "${notary_key_path}" \
+              --key-id "${APPLE_NOTARY_KEY_ID}" \
+              --issuer "${APPLE_NOTARY_ISSUER_ID}" \
+              --wait
+            xcrun stapler staple "${app_dir}"
+            rm -f "${notary_zip}"
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent "${app_dir}" dist/myflowhub-clipboardnode-macos-release.zip
+          if [[ ! -f dist/myflowhub-clipboardnode-macos-release.zip ]]; then
+            echo "Missing packaged macOS release zip" >&2
+            exit 1
+          fi
+          printf -- '- %s (%s bytes)\n' "myflowhub-clipboardnode-macos-release.zip" "$(stat -f%z dist/myflowhub-clipboardnode-macos-release.zip)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload macOS release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-macos-release
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/myflowhub-clipboardnode-macos-release.zip
+
+  build-android-release:
+    name: Build Android release
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+      RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+      PUBLISH_RELEASE: ${{ needs.prepare-release.outputs.publish_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Prepare Android SDK for gomobile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "${android_sdk}" ]]; then
+            echo "ANDROID_HOME or ANDROID_SDK_ROOT must be set before gomobile Android builds" >&2
+            exit 1
+          fi
+
+          echo "ANDROID_HOME=${android_sdk}" >> "${GITHUB_ENV}"
+          echo "ANDROID_SDK_ROOT=${android_sdk}" >> "${GITHUB_ENV}"
+
+          sdkmanager_bin="${android_sdk}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "${sdkmanager_bin}" ]]; then
+            sdkmanager_bin="$(command -v sdkmanager || true)"
+          fi
+          if [[ -z "${sdkmanager_bin}" ]]; then
+            echo "sdkmanager was not found; cannot prepare Android NDK for gomobile" >&2
+            exit 1
+          fi
+
+          ndk_version="27.0.12077973"
+          ndk_path="${android_sdk}/ndk/${ndk_version}"
+          yes | "${sdkmanager_bin}" --licenses >/dev/null || true
+          "${sdkmanager_bin}" "platforms;android-26"
+          if [[ ! -d "${ndk_path}" ]]; then
+            "${sdkmanager_bin}" "ndk;${ndk_version}"
+          fi
+
+          echo "ANDROID_NDK_HOME=${ndk_path}" >> "${GITHUB_ENV}"
+          echo "ANDROID_NDK_ROOT=${ndk_path}" >> "${GITHUB_ENV}"
+
+      - name: Build gomobile AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build_aar.sh android/arm64,android/arm,android/amd64,android/386 com.myflowhub.gomobile app/android/app/libs/myflowhub.aar 2>&1 | tee gomobile-android-release-build.log
+          if [[ ! -f app/android/app/libs/myflowhub.aar ]]; then
+            echo "gomobile AAR was not generated" >&2
+            exit 1
+          fi
+          printf -- '- %s (%s bytes)\n' "myflowhub.aar" "$(stat -c%s app/android/app/libs/myflowhub.aar)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Android gomobile build log
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: myflowhub-clipboardnode-android-release-gomobile-build-log
+          if-no-files-found: ignore
+          retention-days: 14
+          path: gomobile-android-release-build.log
+
+      - name: Configure Android release signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+
+          if [[ "${PUBLISH_RELEASE}" == "true" && ${#missing[@]} -gt 0 ]]; then
+            printf 'Missing Android release signing secrets for tag release: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [[ ${#missing[@]} -eq 0 ]]; then
+            keystore_path="${RUNNER_TEMP}/myflowhub-clipboardnode-release.jks"
+            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+            {
+              echo "ANDROID_KEYSTORE_PATH=${keystore_path}"
+              echo "ANDROID_KEYSTORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}"
+              echo "ANDROID_KEY_ALIAS=${ANDROID_KEY_ALIAS}"
+              echo "ANDROID_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}"
+            } >> "${GITHUB_ENV}"
+            echo "Android release signing configured from CI secrets." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "Manual dry-run: Android release signing secrets are absent; Gradle will use debug signing fallback." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Build and package Android release APK and AAB
+        shell: bash
+        working-directory: app
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+          flutter build apk --release --build-name "${RELEASE_BUILD_NAME}" --build-number "${RELEASE_BUILD_NUMBER}"
+          flutter build appbundle --release --build-name "${RELEASE_BUILD_NAME}" --build-number "${RELEASE_BUILD_NUMBER}"
+
+      - name: Package Android release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk_path="app/build/app/outputs/flutter-apk/app-release.apk"
+          aab_path="app/build/app/outputs/bundle/release/app-release.aab"
+          for path in "${apk_path}" "${aab_path}"; do
+            if [[ ! -f "${path}" ]]; then
+              echo "Missing Android release output: ${path}" >&2
+              find app/build/app/outputs -maxdepth 5 -type f -print >&2 || true
+              exit 1
+            fi
+          done
+
+          rm -rf dist
+          mkdir -p dist
+          cp "${apk_path}" dist/myflowhub-clipboardnode-android-release.apk
+          cp "${aab_path}" dist/myflowhub-clipboardnode-android-release.aab
+          printf -- '- %s (%s bytes)\n' "myflowhub-clipboardnode-android-release.apk" "$(stat -c%s dist/myflowhub-clipboardnode-android-release.apk)" >> "${GITHUB_STEP_SUMMARY}"
+          printf -- '- %s (%s bytes)\n' "myflowhub-clipboardnode-android-release.aab" "$(stat -c%s dist/myflowhub-clipboardnode-android-release.aab)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Android release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-android-release
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/myflowhub-clipboardnode-android-release.apk
+            dist/myflowhub-clipboardnode-android-release.aab
+
+  build-ios-release:
+    name: Build iOS release
+    needs: prepare-release
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+      RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+      PUBLISH_RELEASE: ${{ needs.prepare-release.outputs.publish_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Validate iOS signing and export secrets
+        shell: bash
+        env:
+          IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_DEVELOPMENT_TEAM: ${{ secrets.IOS_DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+          if [[ "${PUBLISH_RELEASE}" != "true" ]]; then
+            echo "Manual dry-run: iOS signing/export secrets are not required." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          missing=()
+          for name in IOS_DISTRIBUTION_CERT_BASE64 IOS_DISTRIBUTION_CERT_PASSWORD IOS_PROVISIONING_PROFILE_BASE64 IOS_DEVELOPMENT_TEAM; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing iOS signing/export secrets for tag release: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Build and package iOS release app
+        shell: bash
+        env:
+          IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_DEVELOPMENT_TEAM: ${{ secrets.IOS_DEVELOPMENT_TEAM }}
+          IOS_EXPORT_METHOD: ${{ secrets.IOS_EXPORT_METHOD }}
+          IOS_CODE_SIGN_IDENTITY: ${{ secrets.IOS_CODE_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+
+          decode_base64() {
+            printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D
+          }
+
+          bash ./scripts/build_ios_xcframework.sh ios app/ios/Frameworks/Nodemobile.xcframework 2>&1 | tee gomobile-ios-release-build.log
+          if [[ ! -d app/ios/Frameworks/Nodemobile.xcframework ]]; then
+            echo "Nodemobile.xcframework was not generated" >&2
+            exit 1
+          fi
+
+          cd app
+          flutter --version
+          flutter pub get
+
+          rm -rf ../dist
+          mkdir -p ../dist
+
+          if [[ "${PUBLISH_RELEASE}" == "true" ]]; then
+            keychain="${RUNNER_TEMP}/ios-signing.keychain-db"
+            keychain_password="$(uuidgen)"
+            cert_path="${RUNNER_TEMP}/ios-distribution.p12"
+            profile_path="${RUNNER_TEMP}/ios-profile.mobileprovision"
+            export_method="${IOS_EXPORT_METHOD:-ad-hoc}"
+            code_sign_identity="${IOS_CODE_SIGN_IDENTITY:-Apple Distribution}"
+
+            decode_base64 "${IOS_DISTRIBUTION_CERT_BASE64}" > "${cert_path}"
+            decode_base64 "${IOS_PROVISIONING_PROFILE_BASE64}" > "${profile_path}"
+
+            security create-keychain -p "${keychain_password}" "${keychain}"
+            security default-keychain -s "${keychain}"
+            security unlock-keychain -p "${keychain_password}" "${keychain}"
+            security set-keychain-settings -lut 21600 "${keychain}"
+            security import "${cert_path}" -k "${keychain}" -P "${IOS_DISTRIBUTION_CERT_PASSWORD}" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "${keychain_password}" "${keychain}"
+
+            profile_plist="${RUNNER_TEMP}/ios-profile.plist"
+            security cms -D -i "${profile_path}" > "${profile_plist}"
+            profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "${profile_plist}")"
+            profile_name="$(/usr/libexec/PlistBuddy -c 'Print Name' "${profile_plist}")"
+            mkdir -p "${HOME}/Library/MobileDevice/Provisioning Profiles"
+            cp "${profile_path}" "${HOME}/Library/MobileDevice/Provisioning Profiles/${profile_uuid}.mobileprovision"
+
+            export_options="${RUNNER_TEMP}/ExportOptions.plist"
+            {
+              printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'
+              printf '%s\n' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+              printf '%s\n' '<plist version="1.0">'
+              printf '%s\n' '<dict>'
+              printf '%s\n' '  <key>method</key>'
+              printf '  <string>%s</string>\n' "${export_method}"
+              printf '%s\n' '  <key>signingStyle</key>'
+              printf '%s\n' '  <string>manual</string>'
+              printf '%s\n' '  <key>teamID</key>'
+              printf '  <string>%s</string>\n' "${IOS_DEVELOPMENT_TEAM}"
+              printf '%s\n' '  <key>provisioningProfiles</key>'
+              printf '%s\n' '  <dict>'
+              printf '%s\n' '    <key>com.yttydcs.myflowhub.clipboardnode</key>'
+              printf '    <string>%s</string>\n' "${profile_name}"
+              printf '%s\n' '  </dict>'
+              printf '%s\n' '</dict>'
+              printf '%s\n' '</plist>'
+            } > "${export_options}"
+
+            flutter build ios --release --no-codesign \
+              --build-name "${RELEASE_BUILD_NAME}" \
+              --build-number "${RELEASE_BUILD_NUMBER}"
+
+            archive_path="${RUNNER_TEMP}/Runner.xcarchive"
+            rm -rf "${archive_path}" build/ios/ipa
+            xcodebuild -workspace ios/Runner.xcworkspace \
+              -scheme Runner \
+              -configuration Release \
+              -destination generic/platform=iOS \
+              -archivePath "${archive_path}" \
+              DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM}" \
+              CODE_SIGN_STYLE=Manual \
+              PROVISIONING_PROFILE_SPECIFIER="${profile_name}" \
+              CODE_SIGN_IDENTITY="${code_sign_identity}" \
+              OTHER_CODE_SIGN_FLAGS="--keychain ${keychain}" \
+              archive
+
+            xcodebuild -exportArchive \
+              -archivePath "${archive_path}" \
+              -exportPath build/ios/ipa \
+              -exportOptionsPlist "${export_options}"
+
+            ipa_path="$(find build/ios/ipa -maxdepth 1 -name '*.ipa' -type f | head -n 1)"
+            if [[ -z "${ipa_path}" || ! -f "${ipa_path}" ]]; then
+              echo "Flutter iOS release IPA was not found." >&2
+              find build/ios -maxdepth 5 -type f -print >&2 || true
+              exit 1
+            fi
+            cp "${ipa_path}" ../dist/myflowhub-clipboardnode-ios-release.ipa
+          else
+            flutter build ios --release --no-codesign \
+              --build-name "${RELEASE_BUILD_NAME}" \
+              --build-number "${RELEASE_BUILD_NUMBER}"
+
+            app_dir="build/ios/iphoneos/Runner.app"
+            if [[ ! -d "${app_dir}" ]]; then
+              echo "Flutter iOS no-codesign release app was not found: ${app_dir}" >&2
+              find build/ios -maxdepth 5 -type d -name "*.app" -print >&2 || true
+              exit 1
+            fi
+            ditto -c -k --sequesterRsrc --keepParent "${app_dir}" ../dist/myflowhub-clipboardnode-ios-release-dryrun.zip
+          fi
+
+          cd ..
+          if [[ "${PUBLISH_RELEASE}" == "true" && ! -f dist/myflowhub-clipboardnode-ios-release.ipa ]]; then
+            echo "Missing iOS release IPA asset" >&2
+            exit 1
+          fi
+          find dist -maxdepth 1 -type f -print | while read -r asset; do
+            printf -- '- %s (%s bytes)\n' "$(basename "${asset}")" "$(stat -f%z "${asset}")" >> "${GITHUB_STEP_SUMMARY}"
+          done
+
+      - name: Upload iOS gomobile build log
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: myflowhub-clipboardnode-ios-release-gomobile-build-log
+          if-no-files-found: ignore
+          retention-days: 14
+          path: gomobile-ios-release-build.log
+
+      - name: Upload iOS release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-ios-release
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/myflowhub-clipboardnode-ios-release.ipa
+            dist/myflowhub-clipboardnode-ios-release-dryrun.zip
+
+  build-web-release:
+    name: Build Web release
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+      RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+      RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+      PUBLISH_RELEASE: ${{ needs.prepare-release.outputs.publish_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build and package Web release app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd app
+          flutter --version
+          flutter pub get
+          flutter build web --release
+          cd ..
+
+          web_dir="app/build/web"
+          if [[ ! -d "${web_dir}" ]]; then
+            echo "Flutter Web release output was not found: ${web_dir}" >&2
+            exit 1
+          fi
+          if [[ ! -f "${web_dir}/index.html" ]]; then
+            echo "Flutter Web release output does not contain index.html" >&2
+            find "${web_dir}" -maxdepth 2 -type f -print >&2 || true
+            exit 1
+          fi
+
+          rm -rf dist
+          package_root="dist/myflowhub-clipboardnode-web-release"
+          mkdir -p "${package_root}"
+          cp -a "${web_dir}/." "${package_root}/"
+          {
+            echo "repo=${GITHUB_REPOSITORY}"
+            echo "tag=${RELEASE_TAG}"
+            echo "version=${RELEASE_BUILD_NAME}"
+            echo "build_number=${RELEASE_BUILD_NUMBER}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "platform=web"
+            echo "publish_release=${PUBLISH_RELEASE}"
+          } > "${package_root}/build-info.txt"
+
+          (cd dist && zip -qr myflowhub-clipboardnode-web-release.zip myflowhub-clipboardnode-web-release)
+          if [[ ! -f dist/myflowhub-clipboardnode-web-release.zip ]]; then
+            echo "Missing packaged Web release zip" >&2
+            exit 1
+          fi
+          printf -- '- %s (%s bytes)\n' "myflowhub-clipboardnode-web-release.zip" "$(stat -c%s dist/myflowhub-clipboardnode-web-release.zip)" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Web release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: myflowhub-clipboardnode-web-release
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/myflowhub-clipboardnode-web-release.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    if: needs.prepare-release.outputs.publish_release == 'true'
+    needs:
+      - prepare-release
+      - build-windows-release
+      - build-linux-release
+      - build-macos-release
+      - build-android-release
+      - build-ios-release
+      - build-web-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: myflowhub-clipboardnode-release-${{ needs.prepare-release.outputs.release_tag }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish version release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+          RELEASE_BUILD_NAME: ${{ needs.prepare-release.outputs.build_name }}
+          RELEASE_BUILD_NUMBER: ${{ needs.prepare-release.outputs.build_number }}
+        run: |
+          set -euo pipefail
+
+          repo="${GITHUB_REPOSITORY}"
+          tag="${RELEASE_TAG}"
+          sha="${GITHUB_SHA}"
+          required_assets=(
+            "myflowhub-clipboardnode-windows-release.zip"
+            "myflowhub-clipboardnode-linux-release.tar.gz"
+            "myflowhub-clipboardnode-macos-release.zip"
+            "myflowhub-clipboardnode-android-release.apk"
+            "myflowhub-clipboardnode-android-release.aab"
+            "myflowhub-clipboardnode-ios-release.ipa"
+            "myflowhub-clipboardnode-web-release.zip"
+            "clipboardnode-windows-amd64.exe"
+            "clipboardnode-bridge-windows-amd64.exe"
+          )
+
+          upload_args=()
+          for asset in "${required_assets[@]}"; do
+            path="artifacts/${asset}"
+            if [[ ! -f "${path}" ]]; then
+              echo "Missing required release asset: ${path}" >&2
+              find artifacts -maxdepth 3 -type f -print >&2 || true
+              exit 1
+            fi
+            upload_args+=("${path}")
+          done
+
+          (cd artifacts && sha256sum "${required_assets[@]}") > artifacts/myflowhub-clipboardnode-release-checksums.txt
+          upload_args+=("artifacts/myflowhub-clipboardnode-release-checksums.txt")
+
+          release_title="MyFlowHub ClipboardNode ${tag}"
+          run_url="${GITHUB_SERVER_URL}/${repo}/actions/runs/${GITHUB_RUN_ID}"
+          release_notes_file="$(mktemp)"
+          {
+            echo "Automated MyFlowHub ClipboardNode release."
+            echo
+            echo "tag=${tag}"
+            echo "version=${RELEASE_BUILD_NAME}"
+            echo "build_number=${RELEASE_BUILD_NUMBER}"
+            echo "commit=${sha}"
+            echo "run=${run_url}"
+            echo
+            echo "Signing status:"
+            echo "- Windows executables: signed by CI PFX secret."
+            echo "- Android APK/AAB: signed by CI keystore secret."
+            echo "- macOS app: signed and notarized by CI Apple secrets."
+            echo "- iOS IPA: exported with CI distribution certificate and provisioning profile."
+            echo
+            echo "Assets:"
+            for asset in "${required_assets[@]}"; do
+              echo "- ${asset}"
+            done
+            echo "- myflowhub-clipboardnode-release-checksums.txt"
+          } > "${release_notes_file}"
+
+          if release_id="$(gh release view "${tag}" --repo "${repo}" --json databaseId --jq .databaseId 2>/dev/null)"; then
+            release_notes="$(cat "${release_notes_file}")"
+            gh api --method PATCH "repos/${repo}/releases/${release_id}" \
+              -f name="${release_title}" \
+              -f body="${release_notes}" \
+              -F draft=false \
+              -F prerelease=false \
+              -f make_latest=true \
+              >/dev/null
+          else
+            gh release create "${tag}" --repo "${repo}" --title "${release_title}" --notes-file "${release_notes_file}" --verify-tag --latest
+          fi
+
+          gh release upload "${tag}" "${upload_args[@]}" --repo "${repo}" --clobber
+
+          release_url="https://github.com/${repo}/releases/tag/${tag}"
+          {
+            echo "## Release Assets"
+            echo
+            echo "- Release: ${release_url}"
+            echo "- Commit: \`${sha}\`"
+            for asset in "${required_assets[@]}" "myflowhub-clipboardnode-release-checksums.txt"; do
+              echo "- https://github.com/${repo}/releases/download/${tag}/${asset}"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"

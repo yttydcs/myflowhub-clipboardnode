@@ -5,6 +5,22 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+fun propOrEnv(propName: String, envName: String = propName): String? {
+    val propValue = providers.gradleProperty(propName).orNull
+    if (!propValue.isNullOrBlank()) {
+        return propValue
+    }
+    val envValue = providers.environmentVariable(envName).orNull
+    return envValue?.takeIf { it.isNotBlank() }
+}
+
+val releaseKeystorePath = propOrEnv("MYFLOWHUB_ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PATH")
+val releaseKeystorePassword = propOrEnv("MYFLOWHUB_ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = propOrEnv("MYFLOWHUB_ANDROID_KEY_ALIAS", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = propOrEnv("MYFLOWHUB_ANDROID_KEY_PASSWORD", "ANDROID_KEY_PASSWORD")
+val hasReleaseSigning =
+    listOf(releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.yttydcs.myflowhub.clipboardnode"
     compileSdk = flutter.compileSdkVersion
@@ -28,10 +44,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseSigning) {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig =
+                if (hasReleaseSigning) {
+                    signingConfigs.getByName("release")
+                } else {
+                    logger.lifecycle("Android release signing is not configured; using debug signing fallback for local/dry-run builds.")
+                    signingConfigs.getByName("debug")
+                }
         }
     }
 }
