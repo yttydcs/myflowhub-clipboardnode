@@ -2,7 +2,10 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -48,6 +51,55 @@ func TestStartClosesTransportAfterAuthFailure(t *testing.T) {
 	}
 	if status.Auth.LoggedIn {
 		t.Fatalf("transport remained logged in after startup failure: %+v", status.Auth)
+	}
+}
+
+func TestUpdateConfigClearsAuthWhenDeviceIDChanges(t *testing.T) {
+	authDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(authDir, "auth_snapshot.json"), []byte(`{
+  "device_id": "old-device",
+  "node_id": 14,
+  "hub_id": 1,
+  "logged_in": true
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport, err := myflowhub.New(myflowhub.Options{WorkDir: authDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng, err := New(Options{
+		Config: coreruntime.Config{
+			DeviceID:    "old-device",
+			DisplayName: "Old Device",
+		},
+		WorkDir:   t.TempDir(),
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := eng.UpdateConfig(context.Background(), coreruntime.Config{
+		DeviceID:    "new-device",
+		DisplayName: "New Device",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := transport.AuthState()
+	if st.DeviceID != "" || st.NodeID != 0 || st.HubID != 0 || st.LoggedIn {
+		t.Fatalf("auth state was not cleared: %+v", st)
+	}
+	data, err := os.ReadFile(filepath.Join(authDir, "auth_snapshot.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted myflowhub.AuthState
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.DeviceID != "" || persisted.NodeID != 0 || persisted.HubID != 0 || persisted.LoggedIn {
+		t.Fatalf("persisted auth state was not cleared: %+v", persisted)
 	}
 }
 

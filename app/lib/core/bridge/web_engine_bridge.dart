@@ -283,8 +283,18 @@ class WebEngineBridge implements ClipboardEngineBridge {
       parentEndpoint:
           data['parent_endpoint'] as String? ?? _state.settings.parentEndpoint,
       topic: data['topic'] as String? ?? _state.settings.topic,
+      deviceId:
+          data['device_id'] as String? ??
+          data['device_label'] as String? ??
+          _state.settings.deviceId,
+      displayName:
+          data['display_name'] as String? ??
+          data['device_label'] as String? ??
+          _state.settings.displayName,
       deviceLabel:
-          data['device_label'] as String? ?? _state.settings.deviceLabel,
+          data['display_name'] as String? ??
+          data['device_label'] as String? ??
+          _state.settings.deviceLabel,
       autoWatch: data['auto_watch'] as bool? ?? _state.settings.autoWatch,
       autoApply: data['auto_apply'] as bool? ?? _state.settings.autoApply,
       transferProvider:
@@ -335,7 +345,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
       title: data['title'] as String? ?? kind.name,
       detail: data['detail'] as String? ?? 'TopicBus',
       deviceLabel:
-          data['device_label'] as String? ?? _state.settings.deviceLabel,
+          data['device_label'] as String? ?? _state.settings.displayName,
       byteSize: (data['byte_size'] as num?)?.toInt() ?? 0,
       hashPrefix: data['hash_prefix'] as String? ?? '',
       timestamp: DateTime.now(),

@@ -132,16 +132,20 @@ func (h *stdioHost) handle(ctx context.Context, cmd bridge.EngineCommand) (bool,
 			h.emitError(cmd.ID, fmt.Errorf("decode settings: %w", err))
 			return false, err
 		}
-		cfg := configFromSettings(settings)
+		cfg, err := coreruntime.NormalizeConfig(configFromSettings(settings))
+		if err != nil {
+			h.emitError(cmd.ID, err)
+			return false, err
+		}
 		if err := h.store.Save(cfg); err != nil {
 			h.emitError(cmd.ID, err)
 			return false, err
 		}
-		h.cfg = cfg
 		if err := h.eng.UpdateConfig(ctx, cfg); err != nil {
 			h.emitError(cmd.ID, err)
 			return false, err
 		}
+		h.cfg = cfg
 		h.emitStatus(cmd.ID, true, "")
 	case bridge.ActionSendText:
 		var req struct {
@@ -335,7 +339,9 @@ func (h *stdioHost) statusWithError(errMsg string) bridge.Status {
 		ParentEndpoint:   cfg.ParentEndpoint,
 		Enabled:          cfg.Enabled,
 		Topic:            cfg.Topic,
-		DeviceLabel:      cfg.DeviceLabel,
+		DeviceID:         cfg.DeviceID,
+		DisplayName:      cfg.DisplayName,
+		DeviceLabel:      cfg.DisplayName,
 		AutoWatch:        cfg.AutoWatch,
 		AutoApply:        cfg.AutoApply,
 		TransferProvider: cfg.TransferProvider,
@@ -538,6 +544,8 @@ func configFromSettings(settings bridge.Settings) coreruntime.Config {
 		ParentEndpoint:   settings.ParentEndpoint,
 		Topic:            settings.Topic,
 		MaxInlineBytes:   settings.MaxInlineBytes,
+		DeviceID:         settings.DeviceID,
+		DisplayName:      settings.DisplayName,
 		DeviceLabel:      settings.DeviceLabel,
 		AutoWatch:        settings.AutoWatch,
 		AutoApply:        settings.AutoApply,

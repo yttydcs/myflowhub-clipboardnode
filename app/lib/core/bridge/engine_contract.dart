@@ -27,6 +27,8 @@ class ClipboardSettings {
     required this.enabled,
     required this.parentEndpoint,
     required this.topic,
+    required this.deviceId,
+    required this.displayName,
     required this.deviceLabel,
     required this.maxInlineBytes,
     required this.autoWatch,
@@ -41,6 +43,8 @@ class ClipboardSettings {
       enabled: false,
       parentEndpoint: '127.0.0.1:9000',
       topic: 'clipboard/shared',
+      deviceId: 'local-device',
+      displayName: 'local-device',
       deviceLabel: 'local-device',
       maxInlineBytes: 65536,
       autoWatch: false,
@@ -54,6 +58,8 @@ class ClipboardSettings {
   final bool enabled;
   final String parentEndpoint;
   final String topic;
+  final String deviceId;
+  final String displayName;
   final String deviceLabel;
   final int maxInlineBytes;
   final bool autoWatch;
@@ -66,6 +72,8 @@ class ClipboardSettings {
     bool? enabled,
     String? parentEndpoint,
     String? topic,
+    String? deviceId,
+    String? displayName,
     String? deviceLabel,
     int? maxInlineBytes,
     bool? autoWatch,
@@ -78,6 +86,8 @@ class ClipboardSettings {
       enabled: enabled ?? this.enabled,
       parentEndpoint: parentEndpoint ?? this.parentEndpoint,
       topic: topic ?? this.topic,
+      deviceId: deviceId ?? this.deviceId,
+      displayName: displayName ?? this.displayName,
       deviceLabel: deviceLabel ?? this.deviceLabel,
       maxInlineBytes: maxInlineBytes ?? this.maxInlineBytes,
       autoWatch: autoWatch ?? this.autoWatch,
@@ -93,6 +103,8 @@ class ClipboardSettings {
       'enabled': enabled,
       'parent_endpoint': parentEndpoint,
       'topic': topic,
+      'device_id': deviceId,
+      'display_name': displayName,
       'device_label': deviceLabel,
       'max_inline_bytes': maxInlineBytes,
       'auto_watch': autoWatch,

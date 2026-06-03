@@ -10,7 +10,9 @@ func TestCommandContractEncodesSetConfig(t *testing.T) {
 		Enabled:          true,
 		ParentEndpoint:   "10.0.0.2:9000",
 		Topic:            "clipboard/shared",
-		DeviceLabel:      "win-laptop",
+		DeviceID:         "device-a",
+		DisplayName:      "Win Laptop",
+		DeviceLabel:      "Win Laptop",
 		MaxInlineBytes:   65536,
 		AutoWatch:        true,
 		AutoApply:        false,
@@ -42,6 +44,8 @@ func TestCommandContractEncodesSetConfig(t *testing.T) {
 	}
 	if settings.ParentEndpoint != "10.0.0.2:9000" ||
 		settings.Topic != "clipboard/shared" ||
+		settings.DeviceID != "device-a" ||
+		settings.DisplayName != "Win Laptop" ||
 		!settings.AutoWatch ||
 		settings.AutoApply {
 		t.Fatalf("unexpected settings: %+v", settings)
@@ -55,7 +59,9 @@ func TestStatusEventOmitsClipboardBody(t *testing.T) {
 		ParentEndpoint: "10.0.0.2:9000",
 		Enabled:        true,
 		Topic:          "clipboard/shared",
-		DeviceLabel:    "desktop",
+		DeviceID:       "device-a",
+		DisplayName:    "Desktop",
+		DeviceLabel:    "Desktop",
 		LastAction:     "local_published",
 		LastEventID:    "evt-1",
 		LastSize:       42,

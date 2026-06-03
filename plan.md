@@ -1,184 +1,187 @@
-# Plan - clipboardnode-startup-lifecycle
+# Plan - clipboardnode-device-id-display-name
 
 ## Workflow Information
 - Repo: `D:/project/MyFlowHub3/repo/MyFlowHub-ClipboardNode`
-- Branch: `fix/clipboardnode-startup-lifecycle`
-- Base: `master` at `3c0e539`
-- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
-- Current Stage: 4 - Change Archive
+- Branch: `fix/clipboardnode-stable-device-id`
+- Base: `master` at `926dec18f0d58511b4be3f8fc721553bb62cf6aa`
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-stable-device-id/MyFlowHub-ClipboardNode`
+- Current Stage: 4 - Change Archive Complete
 
 ## Stage Records
 
 ### Initialization
-- guide.md: read from `D:/project/MyFlowHub3/guide.md`; worktrees must stay under `D:/project/MyFlowHub3/worktrees`.
-- base/worktree confirmation: main repo `master` was clean; dedicated worktree created for this workflow.
+- guide.md: read from `D:/project/MyFlowHub3/guide.md`.
+- base/worktree confirmation: implementation happens only in the dedicated worktree above.
 - Participating repo: `MyFlowHub-ClipboardNode` only.
+- Main repo generated build output is ignored for this workflow write set.
 
 ### Stage 1 - Requirements Analysis
 #### Goal
-Make ClipboardNode fail cleanly when TopicBus subscription times out and improve node identification in management UIs without changing MyFlowHub wire protocols.
+Fix the `authenticate myflowhub node: invalid signature` path caused by changing the configured device identity, and make the user-visible node display name configurable without coupling it to the auth identity.
 
 #### Scope
-- Must: clean up the transport/session when startup fails after connection or authentication.
-- Must: treat persisted `logged_in` as stale session state on process start so reconnect always performs login and binds the new TCP session.
-- Must: surface the startup error without leaving a misleading connected state.
-- Must: include a stable display name in auth register/login payloads when the configured device label is available.
-- Optional: add focused unit tests for failure cleanup and auth payload display names.
-- Not doing: changing TopicBus, Auth, Management, SDK, Server, SubProto, or remote Hub behavior.
+- Must: expose a configurable `device_id` as the MyFlowHub auth identity.
+- Must: clear local login/auth snapshot data when `device_id` changes.
+- Must: expose a configurable `display_name` and send it in auth register/login payloads.
+- Must: keep legacy `device_label` config compatible by migrating it into `device_id` and `display_name` when the new fields are absent.
+- Must: keep the change local to ClipboardNode without changing MyFlowHub wire contracts.
+- Not doing: changing Server / SubProto auth verification rules, deleting node private keys automatically, or adding cross-repo protocol fields.
 
 #### Use Cases
-- A user connects ClipboardNode to a Hub where TopicBus subscribe does not return; the app reports failure and does not appear half-started.
-- A user opens MyFlowHub-Win device tree after ClipboardNode connects; if the Hub lists the node, the display name should be meaningful.
+- A user edits the device ID after an earlier registration; ClipboardNode clears the old `auth_snapshot` instead of logging in with the old node id and new signature identity.
+- A user edits only the display name; ClipboardNode keeps the same auth identity and sends the new display name during register/login.
+- An existing config with only `device_label` remains usable after upgrade.
 
 #### Functional Requirements
-- Startup must connect, authenticate, and subscribe before reporting a started runtime.
-- A failed runtime subscription must clear the local transport connection state.
-- Auth payloads should carry the user-visible device label as display metadata when protocol fields support it.
-- Existing auth snapshot behavior must remain compatible for `device_id`, `node_id`, and `hub_id`, while `logged_in` remains an in-memory session property.
+- Auth register/login signs with normalized `device_id`.
+- Auth register/login payloads carry normalized `display_name`, falling back to `device_id` when blank.
+- On config update, if the normalized old `device_id` and new `device_id` differ, the engine stops the current session and clears the auth snapshot.
+- On startup, if the saved auth snapshot `device_id` differs from the normalized config `device_id`, the auth client clears the stale snapshot before registering/logging in.
+- Legacy `device_label` is retained as a compatibility field and maps to display-name/status metadata.
 
 #### Non-functional Requirements
-- No clipboard text may be logged or persisted.
-- Keep the change local to ClipboardNode.
-- Preserve existing public behavior for successful startup.
-- Avoid live Hub dependency in tests.
+- No clipboard text in logs or persisted config.
+- Smallest safe change surface.
+- No MyFlowHub protocol or server behavior changes.
+- Focused automated regression coverage for config normalization and auth mismatch clearing.
 
 #### Inputs / Outputs
-- Inputs: runtime config, `device_label`, parent endpoint, TopicBus subscription result.
-- Outputs: UI-safe status, auth payload, transport cleanup on startup failure.
+- Inputs: runtime config fields `device_id`, `display_name`, legacy `device_label`, saved `auth_snapshot.json`, connect/login flow.
+- Outputs: normalized config, UI-safe status, auth register/login payloads, cleared auth snapshot on device-id mismatch.
 
 #### Edge Cases
-- Missing device label falls back to `clipboardnode`.
-- Connect failure should not try to close an unconnected session beyond best effort.
-- Runtime construction failure after auth should also close the transport.
-- Subscribe timeout remains reported as the original error.
+- Existing config has `device_label` but no `device_id`.
+- Existing snapshot has `device_id=old` but config has `device_id=new`.
+- Existing snapshot has `node_id` but no `device_id`.
+- Blank `display_name` falls back to `device_id`.
 
 #### Acceptance Criteria
-- `Engine.Start` closes `myflowhub.Client` on any failure after `Connect` succeeds.
-- Loading an auth snapshot with `logged_in=true` does not skip login on the next process start.
-- Closing the client persists `logged_in=false` without dropping the saved node identity.
-- `Status().Connected` becomes false after a startup failure caused by runtime subscribe failure.
-- Register/login payloads include display name when supported by proto structs.
-- Existing targeted Go tests pass.
+- Changing `device_id` clears `auth_snapshot.json` and avoids login with the stale node id.
+- Changing `display_name` does not clear auth identity.
+- Register/login payloads use `device_id` for identity and `display_name` for metadata.
+- Existing targeted Go tests pass, and new tests cover normalization and auth mismatch clearing.
 
 #### Risks
-- The remote Hub may still not respond to TopicBus subscribe; this change makes the local state correct but does not fix remote routing/module deployment.
-- If the currently deployed auth server ignores display names, node visibility still depends on management listing online sessions.
+- Re-registering after a device-id change may require Hub approval; that is expected and preferable to `invalid signature`.
+- Deleting `node_keys.json` automatically would be more destructive than needed, so this workflow clears only auth snapshot state.
 
 ### Stage 2 - Architecture Design
 #### Overall Solution
-Keep the fix inside ClipboardNode's engine and MyFlowHub client wrappers. `Engine.Start` will use a local cleanup guard once `Connect` succeeds and release the guard only after `Runtime.Start` succeeds. Auth snapshots will preserve reusable identity fields but normalize session login state to false when loaded from disk. Auth register/login will populate existing display-name fields, if present in the imported protocol types.
+Add first-class `DeviceID` and `DisplayName` runtime fields while keeping legacy `DeviceLabel`. Normalize config centrally so old `device_label` files migrate safely. Pass `DeviceID` and `DisplayName` separately through the engine into the MyFlowHub client. Clear stale auth snapshots both during config updates and during startup auth resolution.
 
 #### Alternatives Considered
-- Retry subscribe automatically: deferred because it changes runtime behavior and could mask remote protocol issues.
-- Increase subscribe timeout: rejected because the observed problem is no response, not slow response.
-- Change Win console tree: rejected because it correctly lists online management children and cannot infer ClipboardNode auth snapshots.
+- Treat `device_label` as display name only and keep saved snapshot device id forever: rejected because the user clarified that editing device ID should clear login data.
+- Delete `node_keys.json` on device-id change: rejected as unnecessarily destructive for this bug; the login data causing stale-node reuse is the auth snapshot.
+- Add server-side display-name logic: rejected because existing auth payloads already include `DisplayName`.
 
 #### Module Responsibilities
-- `core/engine`: connection lifecycle orchestration and startup cleanup.
-- `core/myflowhub`: auth payload construction and request tests.
-- `core/runtime`: unchanged; it already records `transport_failed` and returns explicit subscribe errors.
+- `core/runtime`: normalize `device_id`, `display_name`, and legacy `device_label`.
+- `core/engine`: compare old/new device IDs, stop runtime, and clear auth on identity change.
+- `core/myflowhub`: register/login with separate identity/display values and clear mismatched snapshots before auth.
+- `bridge` and `cmd/clipboardnode-bridge`: carry the new JSON fields and preserve compatibility.
+- `app`: show separate settings fields for device ID and display name.
 
 #### Data / Call Flow
-1. `Engine.Start` calls transport `Connect`.
-2. A cleanup guard is armed.
-3. `EnsureIdentity` reuses saved node identity but logs in again unless the current in-memory session is already logged in.
-4. `EnsureIdentity` registers/logs in using device label metadata.
-5. Runtime is created and subscribes to TopicBus.
-6. On any error before successful runtime start, cleanup guard closes transport and original error is returned.
-7. On success, cleanup guard is released and normal runtime consumption begins.
+1. UI sends `device_id` and `display_name` in `set_config`.
+2. Bridge converts settings into normalized runtime config and saves it.
+3. Engine compares old and new normalized `device_id`.
+4. If changed, engine stops the active runtime and calls `ClearAuth`.
+5. On connect, engine passes `device_id` and `display_name` to `EnsureIdentity`.
+6. MyFlowHub client clears any mismatched saved snapshot, then registers/logs in using the configured identity.
 
 #### Interface Drafts
-- No new public interfaces.
-- Existing auth payloads use `DisplayName` when present.
+- Runtime config: `DeviceID json:"device_id,omitempty"`, `DisplayName json:"display_name,omitempty"`, legacy `DeviceLabel json:"device_label,omitempty"`.
+- Bridge settings/status: same new fields plus legacy `device_label`.
+- Auth client: `EnsureIdentity(ctx, deviceID, displayName)`.
 
 #### Error Handling and Safety
-- Cleanup errors are best-effort and should not replace the root startup error.
-- Existing `recordError` continues to store the root error for UI status.
-- No clipboard payload data enters logs or status.
+- Invalid or blank device ID normalizes to a safe default before auth.
+- Auth clearing errors are returned instead of swallowed.
+- Runtime stop errors during device-id change are returned to the bridge.
+- Existing auth error propagation to UI remains intact.
 
 #### Performance and Testing Strategy
-- No new polling or repeated network I/O.
-- Unit tests use fakes or `net.Pipe`/local SDK hooks rather than live Hub.
-- Run `go test ./core/engine ./core/myflowhub ./core/runtime -count=1`.
+- No additional network round trips.
+- Config comparison uses normalized in-memory values.
+- Run focused Go tests for runtime/configstore/bridge/engine/myflowhub plus Flutter analysis after UI changes.
 
 #### Extensibility Design Points
-- Startup cleanup is local and does not constrain future reconnect/backoff behavior.
-- Display-name helper can be reused if future auth metadata expands.
+- Future UI or CLI tooling can manage device identity without relying on legacy `device_label`.
+- Display metadata remains independent from auth identity.
 
 ### Stage 3.1 - Planning
-#### Project Goal and Current State
-Current runtime can leave an established transport and logged-in auth snapshot after TopicBus subscription times out, causing misleading UI state. The remote Hub timeout remains a separate external concern.
-
 #### Docs Governance Routing Decision
 Using `$m-docs` routing:
 - Requirements impact: none
 - Specs impact: none
 - Related requirements: `docs/requirements/clipboard-sync.md`
 - Related specs: `docs/specs/clipboard-sync.md`
-- Related lessons: create `docs/lessons/startup-subscribe-timeout-half-connected.md`
-- Change archive destination: `docs/change/2026-06-02_clipboardnode-startup-lifecycle.md`
+- Related lessons: check whether a new auth-identity lesson is needed during stage 4
+- Change archive destination: `docs/change/2026-06-03_clipboardnode-device-id-display-name.md`
 
 #### Executable Task List
-- T1: Clean up transport when `Engine.Start` fails after connection.
-- T2: Treat persisted auth login state as stale and include ClipboardNode display name in auth register/login payloads.
-- T3: Add focused tests and run targeted validation.
-- T4: Archive the workflow and reusable lesson.
+- T1: Add normalized config fields and bridge contract support for `device_id` / `display_name`.
+- T2: Update engine and MyFlowHub auth client to clear stale auth snapshots on device-id changes.
+- T3: Update Flutter settings UI and bridge parsing to configure both fields.
+- T4: Add regression tests and run validation.
+- T5: Archive the workflow and add a reusable lesson if warranted.
 
 #### Task Details
-##### T1 - Startup Failure Cleanup
+##### T1 - Config and Bridge Contract
 - Owner: main agent
-- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-stable-device-id/MyFlowHub-ClipboardNode`
 - Plan Path: `plan.md`
-- Goal: ensure failed subscribe/runtime startup does not leave transport connected.
-- Files / Modules: `core/engine`
-- Write Set: `core/engine/engine.go`, `core/engine/*_test.go`
-- Acceptance: subscribe failure returns original error and transport status is disconnected.
-- Test Points: fake transport/runtime path or engine test using fake transport.
-- Rollback: revert engine cleanup changes and tests.
+- Files / Modules: `core/runtime`, `core/configstore`, `bridge`, `cmd/clipboardnode-bridge`
+- Write Set: `core/runtime/config.go`, `core/configstore/store_test.go`, `bridge/contract.go`, `bridge/contract_test.go`, `cmd/clipboardnode-bridge/main.go`
+- Acceptance: old `device_label` configs normalize into new identity/display fields and status emits both new fields.
+- Rollback: revert config/contract additions and tests.
 
-##### T2 - Auth Session Snapshot and Display Name
+##### T2 - Auth Clearing and Payloads
 - Owner: main agent
-- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Worktree: same
 - Plan Path: `plan.md`
-- Goal: send configured device label as display name during register/login and never trust persisted `logged_in=true` as proof of a live session.
-- Files / Modules: `core/myflowhub`
-- Write Set: `core/myflowhub/client.go`, `core/myflowhub/client_test.go`
-- Acceptance: payload includes display name, loaded snapshots force `LoggedIn=false`, and `Close` persists `logged_in=false`.
-- Test Points: request payload and snapshot persistence unit tests.
-- Rollback: revert display-name payload fields and tests.
+- Files / Modules: `core/engine`, `core/myflowhub`
+- Write Set: `core/engine/engine.go`, `core/engine/engine_test.go`, `core/myflowhub/client.go`, `core/myflowhub/client_test.go`
+- Acceptance: mismatched auth snapshots are cleared before login; display-name-only changes do not clear auth.
+- Rollback: revert engine/auth helper changes and tests.
 
-##### T3 - Validation
+##### T3 - Flutter Settings UI
 - Owner: main agent
-- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Worktree: same
 - Plan Path: `plan.md`
-- Goal: verify changed behavior and no regressions in targeted packages.
-- Files / Modules: tests only
-- Write Set: none outside test files.
-- Acceptance: targeted Go tests pass.
-- Test Points: `go test ./core/engine ./core/myflowhub ./core/runtime -count=1`.
-- Rollback: fix failed tests or revert task changes.
+- Files / Modules: `app/lib/core/bridge`, `app/lib/features/shell`
+- Write Set: `app/lib/core/bridge/*.dart`, `app/lib/features/shell/clipboard_shell.dart`
+- Acceptance: settings page has separate device ID and display name inputs, and live/web bridges parse emitted status fields.
+- Rollback: revert UI contract changes.
 
-##### T4 - Docs Archive
+##### T4 - Validation
 - Owner: main agent
-- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Worktree: same
 - Plan Path: `plan.md`
-- Goal: create change archive and lesson.
-- Files / Modules: `docs/change`, `docs/lessons`
-- Write Set: `docs/change/2026-06-02_clipboardnode-startup-lifecycle.md`, `docs/lessons/startup-subscribe-timeout-half-connected.md`, `docs/lessons/README.md`
-- Acceptance: change and lesson are discoverable and record requirements/spec impact.
-- Test Points: docs content review.
-- Rollback: remove archive/lesson if workflow is abandoned.
+- Files / Modules: tests and build output only
+- Write Set: none
+- Acceptance: targeted Go tests pass, Flutter analysis succeeds or any limitation is reported, and a bridge smoke validates device-id mismatch clearing.
+- Rollback: fix failures or revert T1-T3.
+
+##### T5 - Docs Archive
+- Owner: main agent
+- Worktree: same
+- Plan Path: `plan.md`
+- Files / Modules: `docs/change`, maybe `docs/lessons`
+- Write Set: `docs/change/2026-06-03_clipboardnode-device-id-display-name.md`, optional lesson files and indexes
+- Acceptance: change archive records requirements/spec impact and searchable troubleshooting cues.
+- Rollback: remove archive if workflow is abandoned.
 
 #### Dependencies
-- Remote Hub investigation remains external and is not required for this local lifecycle fix.
+- Validation may use a temporary config directory and does not require mutating the user's live `%APPDATA%` files.
 
 #### Risks and Notes
-- This fix will make failed startup appear disconnected; users may still need remote Hub logs to resolve subscribe timeout.
-- No sub-agents are planned because T1/T2 share startup/auth context and the write set is small.
+- New device IDs may require re-approval on the Hub after the snapshot is cleared.
+- Generated Flutter plugin files already dirty in this worktree are prior build output and are not part of the planned write set.
 
 #### Parallelism Assessment
-- Independent Task IDs exist, but T1/T2 are tightly coupled through startup identity flow and tests are small.
-- Sub-agents: not used due tight coupling, limited write set, and need for main-agent integration under `$m-autoflow`.
+- T1-T3 share field names and migration semantics across languages.
+- Sub-agents: not used due small but tightly coupled write set and need for single-agent integration.
 
 #### Issue List
 - None blocking.
@@ -186,34 +189,106 @@ Using `$m-docs` routing:
 阻塞：否
 进入 3.2
 
-### Stage 3.2 - Implementation
-- T1 completed: `Engine.Start` now closes transport on any failure after a successful connect and before runtime startup is fully established.
-- T2 completed: loaded auth snapshots force `LoggedIn=false`, `Close` persists `logged_in=false`, and register/login payloads include `display_name`.
-- T3 completed: added tests for startup failure cleanup, display-name payloads, stale loaded login state, and close persistence.
-- Sub-agents: not used because write set and context were tightly coupled.
+### Stage 3.2 - Implementation Summary
+#### T1 - Config and Bridge Contract
+- Status: completed.
+- Changed `core/runtime.Config` to carry `device_id` and `display_name` separately while retaining legacy `device_label`.
+- Centralized normalization so legacy `device_label` becomes both identity and display fallback when new fields are absent.
+- Updated bridge settings/status JSON contracts and stdio bridge config conversion.
+
+#### T2 - Auth Clearing and Payloads
+- Status: completed.
+- Updated engine startup to call `EnsureIdentity(ctx, deviceID, displayName)`.
+- Updated config changes to stop the runtime and clear auth snapshot when normalized `device_id` changes.
+- Updated MyFlowHub register/login payload helpers to sign and identify with `device_id` while sending `display_name` as metadata.
+- Added stale snapshot clearing before register/login when saved snapshot identity does not match configured `device_id`.
+
+#### T3 - Flutter Settings UI
+- Status: completed.
+- Added separate settings controls for device ID and display name.
+- Updated live, web, mobile, and preview bridges to parse/emit `device_id`, `display_name`, and legacy `device_label` compatibly.
+- Activity labels now use display name while preserving identity as device ID.
+
+#### T4 - Validation
+- Status: completed.
+- `gofmt` and Dart format completed.
+- `GOWORK=off go test ./... -count=1`: passed.
+- `GOWORK=off go test -race ./core/myflowhub ./core/engine ./bridge -count=1`: passed.
+- `GOWORK=off go build ./cmd/clipboardnode-bridge`: passed.
+- `flutter analyze`: passed with Flutter `3.41.9`.
+- `flutter test`: passed, 5 tests.
+- `scripts/validate.ps1 -FlutterBin D:\project\MyFlowHub3\.tmp\tools\flutter-sdk-3.41.9\flutter\bin\flutter.bat`: passed, including Go tests, Go builds, Flutter analysis/tests, and `git diff --check`.
+- Bridge smoke with temporary config/auth data:
+  - `device_id` changed from `old-device` to `new-device`: config saved new identity/display fields and `myflowhub/auth_snapshot.json` was cleared.
+  - only `display_name` changed for `same-device`: config saved the new display name and retained node identity in auth snapshot.
+
+#### Notes
+- Validation outputs include recurring local shell noise from conda initialization after successful commands; command exit codes were zero.
+- Flutter generated plugin files show as modified in `git status` after Flutter tooling, but `git diff --name-only` has no content changes for them.
+- Temporary smoke artifacts live under `build/smoke-device-id` and are generated validation output.
 
 ### Stage 3.3 - Code Review
-- 需求覆盖: 通过
-- 架构合理性: 通过
-- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）: 通过
-- 可读性与一致性: 通过
-- 可扩展性与配置化: 通过
-- 稳定性与安全: 通过
-- 测试覆盖情况: 通过
-- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）: 通过；未使用子Agent
+- 需求覆盖: 通过. Device ID and display name are separate, legacy device label compatibility is preserved, and device ID changes clear local login state.
+- 架构合理性: 通过. Normalization remains in `core/runtime`, engine owns config transition behavior, and MyFlowHub client owns auth payload/snapshot semantics.
+- 性能风险: 通过. The change adds no repeated network calls, no O(n^2) paths, and only uses existing config/auth file writes on explicit settings changes.
+- 可读性与一致性: 通过. Field names match JSON/API intent and surrounding code style; no broad refactor was introduced.
+- 可扩展性与配置化: 通过. Future UI/CLI callers can configure identity and display metadata independently without relying on legacy `device_label`.
+- 稳定性与安全: 通过. Auth clearing errors are returned, stale snapshots are not silently reused, and clipboard content is still excluded from status/config.
+- 测试覆盖情况: 通过. Added/updated Go tests for contract, config persistence, engine auth clearing, auth payloads, and stale snapshot behavior; Flutter tests and analysis pass.
+- 子Agent治理与审计: 通过. No sub-agents were used because the write set was small and tightly coupled.
+
+阻塞：否
+进入 4
 
 ### Stage 4 - Change Archive
-- 使用 `$m-docs` 完成归档路由复核。
-- Requirements impact: none
-- Specs impact: none
+- 使用 `$m-docs` 完成归档路由和需求/规格影响复核。
+- Requirements impact: updated
+- Specs impact: updated
 - Lessons impact: updated
 - Related requirements: `docs/requirements/clipboard-sync.md`
 - Related specs: `docs/specs/clipboard-sync.md`
-- Related lessons: `docs/lessons/startup-subscribe-timeout-half-connected.md`
-- Change archive: `docs/change/2026-06-02_clipboardnode-startup-lifecycle.md`
+- Related lessons:
+  - `docs/lessons/device-id-auth-snapshot-mismatch.md`
+  - `docs/lessons/startup-subscribe-timeout-half-connected.md`
+- Change archive: `docs/change/2026-06-03_clipboardnode-device-id-display-name.md`
+- Docs index updates:
+  - `docs/change/README.md`
+  - `docs/lessons/README.md`
+- Stable docs clarification:
+  - `docs/requirements/clipboard-sync.md` now records separate device identity and display name requirements.
+  - `docs/specs/clipboard-sync.md` now records `device_id`, `display_name`, and legacy `device_label` config/status semantics.
 - Validation:
-  - `GOWORK=off go test ./core/engine ./core/myflowhub ./core/runtime -count=1` passed
-  - `GOWORK=off go test ./... -count=1` passed
-  - `git diff --check` passed
-  - 临时运行目录复制 `%APPDATA%\MyFlowHub\ClipboardNode` 的 `config.json` 与 `node_keys.json`，使用修复后的 `build/clipboardnode-bridge.exe` 执行 `connect`，返回 `connected=true`、`logged_in=true`、`node_id=14`、`subscribed=true`
-  - 使用当前 MCP `node_id=15` 查询 `myflowhub_management_list_subtree`，Hub 1 返回节点 `8 (NAS MyFlowHub MCP)`、`15 (AI MCP)`、`14 (local-device)`、`1`，确认 ClipboardNode 在线可见
+  - `GOWORK=off go test ./... -count=1` passed.
+  - `GOWORK=off go test -race ./core/myflowhub ./core/engine ./bridge -count=1` passed.
+  - `GOWORK=off go build ./cmd/clipboardnode-bridge` passed.
+  - `flutter analyze` passed.
+  - `flutter test` passed.
+  - `scripts/validate.ps1 -FlutterBin D:\project\MyFlowHub3\.tmp\tools\flutter-sdk-3.41.9\flutter\bin\flutter.bat` passed.
+  - Bridge smoke with temporary config/auth data passed for both `device_id` change and display-name-only change.
+  - Final `git diff --check` passed after docs updates.
+- SubAgents: none.
+
+阻塞：否
+等待是否结束 workflow
+
+### Follow-up - Header Alignment UI Fix
+- Date: 2026-06-04
+- User symptom: desktop shell header text looked vertically off, and the overview header bottom border did not align with the left brand header border.
+- Requirements impact: none
+- Specs impact: none
+- Lessons impact: none
+- Task: make the desktop side navigation brand area and content top bar share one fixed header height and draw their bottom borders from matching containers.
+- Files:
+  - `app/lib/features/shell/clipboard_shell.dart`
+  - `docs/change/2026-06-04_clipboardnode-header-alignment.md`
+  - `docs/change/README.md`
+- Implementation:
+  - Added `_desktopHeaderHeight = 72`.
+  - Replaced left brand `Padding + Divider` with a fixed-height decorated header.
+  - Set the right top bar to the same fixed height.
+  - Vertically centered `_BrandMark` contents with `Center` and `mainAxisSize: MainAxisSize.min`.
+- Validation:
+  - `dart format app/lib/features/shell/clipboard_shell.dart` passed.
+  - `flutter analyze` passed.
+  - `flutter test` passed, 5 tests.
+  - `git diff --check` passed.

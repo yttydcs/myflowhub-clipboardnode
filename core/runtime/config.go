@@ -8,6 +8,7 @@ import (
 const (
 	DefaultParentEndpoint = "127.0.0.1:9000"
 	DefaultMaxInlineBytes = 65536
+	DefaultDeviceID       = "local-device"
 	HistoryRetentionNone  = "none"
 	defaultRecentLimit    = 128
 	defaultSuppressLimit  = 32
@@ -18,6 +19,8 @@ type Config struct {
 	ParentEndpoint   string `json:"parent_endpoint"`
 	Topic            string `json:"topic"`
 	MaxInlineBytes   int    `json:"max_inline_bytes"`
+	DeviceID         string `json:"device_id,omitempty"`
+	DisplayName      string `json:"display_name,omitempty"`
 	DeviceLabel      string `json:"device_label,omitempty"`
 	AutoWatch        bool   `json:"auto_watch"`
 	AutoApply        bool   `json:"auto_apply"`
@@ -31,6 +34,9 @@ func DefaultConfig() Config {
 		ParentEndpoint:   DefaultParentEndpoint,
 		Enabled:          false,
 		MaxInlineBytes:   DefaultMaxInlineBytes,
+		DeviceID:         DefaultDeviceID,
+		DisplayName:      DefaultDeviceID,
+		DeviceLabel:      DefaultDeviceID,
 		AutoWatch:        false,
 		AutoApply:        false,
 		HistoryRetention: HistoryRetentionNone,
@@ -40,10 +46,25 @@ func DefaultConfig() Config {
 func NormalizeConfig(cfg Config) (Config, error) {
 	cfg.ParentEndpoint = strings.TrimSpace(cfg.ParentEndpoint)
 	cfg.Topic = strings.TrimSpace(cfg.Topic)
+	cfg.DeviceID = strings.TrimSpace(cfg.DeviceID)
+	cfg.DisplayName = strings.TrimSpace(cfg.DisplayName)
 	cfg.DeviceLabel = strings.TrimSpace(cfg.DeviceLabel)
 	cfg.HistoryRetention = strings.TrimSpace(cfg.HistoryRetention)
 	cfg.TransferProvider = strings.TrimSpace(cfg.TransferProvider)
 	cfg.TransferRef = strings.TrimSpace(cfg.TransferRef)
+	if cfg.DeviceID == "" {
+		cfg.DeviceID = cfg.DeviceLabel
+	}
+	if cfg.DeviceID == "" {
+		cfg.DeviceID = DefaultDeviceID
+	}
+	if cfg.DisplayName == "" {
+		cfg.DisplayName = cfg.DeviceLabel
+	}
+	if cfg.DisplayName == "" {
+		cfg.DisplayName = cfg.DeviceID
+	}
+	cfg.DeviceLabel = cfg.DisplayName
 	if cfg.HistoryRetention == "" {
 		cfg.HistoryRetention = HistoryRetentionNone
 	}

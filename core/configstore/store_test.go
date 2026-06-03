@@ -27,6 +27,9 @@ func TestStoreLoadMissingReturnsSafeDefaults(t *testing.T) {
 	if cfg.ParentEndpoint != coreruntime.DefaultParentEndpoint {
 		t.Fatalf("parent_endpoint = %q", cfg.ParentEndpoint)
 	}
+	if cfg.DeviceID != coreruntime.DefaultDeviceID || cfg.DisplayName != coreruntime.DefaultDeviceID {
+		t.Fatalf("default identity fields = device_id:%q display_name:%q", cfg.DeviceID, cfg.DisplayName)
+	}
 }
 
 func TestStoreSaveLoadDoesNotPersistClipboardText(t *testing.T) {
@@ -59,11 +62,39 @@ func TestStoreSaveLoadDoesNotPersistClipboardText(t *testing.T) {
 	if !loaded.Enabled ||
 		loaded.ParentEndpoint != "10.0.0.2:9000" ||
 		loaded.Topic != "clipboard/dev" ||
+		loaded.DeviceID != "win-laptop" ||
+		loaded.DisplayName != "win-laptop" ||
 		loaded.DeviceLabel != "win-laptop" {
 		t.Fatalf("loaded config = %+v", loaded)
 	}
 	if loaded.MaxInlineBytes != 1024 {
 		t.Fatalf("max_inline_bytes = %d", loaded.MaxInlineBytes)
+	}
+}
+
+func TestStoreSaveLoadKeepsDeviceIDAndDisplayNameSeparate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clipboardnode.json")
+	store, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := coreruntime.Config{
+		ParentEndpoint: "10.0.0.2:9000",
+		Topic:          "clipboard/dev",
+		MaxInlineBytes: 1024,
+		DeviceID:       " device-a ",
+		DisplayName:    " Laptop A ",
+		DeviceLabel:    " legacy-label ",
+	}
+	if err := store.Save(cfg); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.DeviceID != "device-a" || loaded.DisplayName != "Laptop A" || loaded.DeviceLabel != "Laptop A" {
+		t.Fatalf("loaded identity fields = %+v", loaded)
 	}
 }
 

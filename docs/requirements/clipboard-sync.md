@@ -86,15 +86,17 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 18. ClipboardNode must support at least these UI surfaces:
     - connection and login status;
     - parent Hub / endpoint configuration;
-    - device identity and channel selection;
+    - device identity, display name, and channel selection;
     - sync enable/disable;
     - local clipboard watch/apply policies;
     - inline size limit;
     - manual send current clipboard;
     - recent transfer status without forced body exposure;
     - error and validation status.
-19. ClipboardNode must not treat publish success as remote apply success.
-20. ClipboardNode must not create new MyFlowHub protocol actions or rely on server-side ClipboardNode-specific behavior.
+19. ClipboardNode must keep the authenticated device identity configurable separately from the user-visible display name.
+20. ClipboardNode must clear or invalidate local login/session data when the configured authenticated device identity changes.
+21. ClipboardNode must not treat publish success as remote apply success.
+22. ClipboardNode must not create new MyFlowHub protocol actions or rely on server-side ClipboardNode-specific behavior.
 
 ## Non-functional Requirements
 
@@ -118,7 +120,9 @@ Security is based on the private MyFlowHub network, authenticated node identity,
   - `parent_endpoint`
   - `topic`
   - `max_inline_bytes`
-  - `device_label`
+  - `device_id`
+  - `display_name`
+  - `device_label` as a legacy compatibility alias
   - `auto_watch`
   - `auto_apply`
   - `history_retention`
