@@ -30,6 +30,9 @@ type Status struct {
 	NodeID         uint32
 	HubID          uint32
 	ParentEndpoint string
+	DeviceID       string
+	DisplayName    string
+	DeviceLabel    string
 	Runtime        coreruntime.Status
 	LastError      string
 }
@@ -114,11 +117,7 @@ func (e *Engine) Start(ctx context.Context) error {
 			_ = e.transport.Close()
 		}
 	}()
-	deviceID := strings.TrimSpace(cfg.DeviceLabel)
-	if deviceID == "" {
-		deviceID = "clipboardnode"
-	}
-	authState, err := e.transport.EnsureIdentity(ctx, deviceID)
+	authState, err := e.transport.EnsureIdentity(ctx, cfg.DeviceID, cfg.DisplayName)
 	if err != nil {
 		e.recordError(err)
 		return fmt.Errorf("authenticate myflowhub node: %w", err)
@@ -204,8 +203,28 @@ func (e *Engine) UpdateConfig(ctx context.Context, cfg coreruntime.Config) error
 		return err
 	}
 	e.mu.Lock()
-	e.cfg = cfg
+	identityChanged := e.cfg.DeviceID != cfg.DeviceID
 	rt := e.runtime
+	e.mu.Unlock()
+	if identityChanged {
+		if err := e.Stop(ctx); err != nil {
+			e.recordError(err)
+			return err
+		}
+		if e.transport != nil {
+			if err := e.transport.ClearAuth(); err != nil {
+				e.recordError(err)
+				return err
+			}
+		}
+		e.mu.Lock()
+		e.cfg = cfg
+		e.mu.Unlock()
+		return nil
+	}
+	e.mu.Lock()
+	e.cfg = cfg
+	rt = e.runtime
 	e.mu.Unlock()
 	if rt != nil {
 		if err := rt.UpdateConfig(ctx, cfg); err != nil {
@@ -292,6 +311,9 @@ func (e *Engine) Status() Status {
 		NodeID:         transportStatus.Auth.NodeID,
 		HubID:          transportStatus.Auth.HubID,
 		ParentEndpoint: cfg.ParentEndpoint,
+		DeviceID:       cfg.DeviceID,
+		DisplayName:    cfg.DisplayName,
+		DeviceLabel:    cfg.DisplayName,
 		LastError:      lastErr,
 	}
 	if out.LastError == "" {

@@ -1,6 +1,7 @@
 package myflowhub
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -44,23 +45,82 @@ func TestParseTopicBusPublishRejectsNonPublish(t *testing.T) {
 }
 
 func TestAuthPayloadsIncludeDisplayName(t *testing.T) {
-	reg := registerData(" local-device ", "pub-key")
+	reg := registerData(" local-device ", " Laptop Name ", "pub-key")
 	if reg.DeviceID != "local-device" {
 		t.Fatalf("register device id = %q", reg.DeviceID)
 	}
-	if reg.DisplayName != "local-device" {
+	if reg.DisplayName != "Laptop Name" {
 		t.Fatalf("register display name = %q", reg.DisplayName)
 	}
 
-	login := loginData(" local-device ", 14, 123, "nonce", "sig")
+	login := loginData(" local-device ", " Laptop Name ", 14, 123, "nonce", "sig")
 	if login.DeviceID != "local-device" {
 		t.Fatalf("login device id = %q", login.DeviceID)
 	}
-	if login.DisplayName != "local-device" {
+	if login.DisplayName != "Laptop Name" {
 		t.Fatalf("login display name = %q", login.DisplayName)
 	}
 	if login.NodeID != 14 || login.TS != 123 || login.Nonce != "nonce" || login.Sig != "sig" || login.Alg != "ES256" {
 		t.Fatalf("unexpected login payload: %+v", login)
+	}
+}
+
+func TestEnsureIdentityClearsSnapshotWhenConfiguredDeviceIDChanges(t *testing.T) {
+	client, err := New(Options{WorkDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.setAuthSnapshot(protoauth.ActionLoginResp, "local-device", protoauth.RespData{
+		Code:   1,
+		Msg:    "ok",
+		NodeID: 14,
+		HubID:  1,
+	}, false)
+	if err := client.saveAuthSnapshot(client.AuthState()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.EnsureIdentity(context.Background(), "clipboard-laptop-device", "Laptop Name"); err == nil {
+		t.Fatalf("expected register error after clearing stale snapshot")
+	}
+	st := client.AuthState()
+	if st.DeviceID != "" || st.NodeID != 0 || st.HubID != 0 || st.LoggedIn {
+		t.Fatalf("stale auth snapshot was not cleared: %+v", st)
+	}
+	data, err := os.ReadFile(client.authSnapshotPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted AuthState
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.DeviceID != "" || persisted.NodeID != 0 || persisted.HubID != 0 || persisted.LoggedIn {
+		t.Fatalf("persisted stale auth snapshot was not cleared: %+v", persisted)
+	}
+}
+
+func TestEnsureIdentityKeepsSnapshotWhenOnlyDisplayNameChanges(t *testing.T) {
+	client, err := New(Options{WorkDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.setAuthSnapshot(protoauth.ActionLoginResp, "local-device", protoauth.RespData{
+		Code:   1,
+		Msg:    "ok",
+		NodeID: 14,
+		HubID:  1,
+	}, false)
+	if err := client.saveAuthSnapshot(client.AuthState()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.EnsureIdentity(context.Background(), "local-device", "Laptop Name"); err == nil {
+		t.Fatalf("expected login error without a connection")
+	}
+	st := client.AuthState()
+	if st.DeviceID != "local-device" || st.NodeID != 14 || st.HubID != 1 {
+		t.Fatalf("display-name-only change cleared identity: %+v", st)
 	}
 }
 

@@ -138,12 +138,21 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
     if (settings.maxInlineBytes <= 0) {
       throw StateError('内联文本上限必须大于 0');
     }
+    final normalizedDeviceId = settings.deviceId.trim().isEmpty
+        ? 'local-device'
+        : settings.deviceId.trim();
+    final normalizedDisplayName = settings.displayName.trim().isEmpty
+        ? normalizedDeviceId
+        : settings.displayName.trim();
     _emit(
       _state.copyWith(
         hubEndpoint: normalizedParentEndpoint,
         settings: settings.copyWith(
           parentEndpoint: normalizedParentEndpoint,
           topic: normalizedTopic,
+          deviceId: normalizedDeviceId,
+          displayName: normalizedDisplayName,
+          deviceLabel: normalizedDisplayName,
         ),
         lastError: '',
       ),
@@ -188,7 +197,7 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
       kind: ActivityKind.published,
       title: '已发布文本',
       detail: 'TopicBus 本地发布状态',
-      deviceLabel: _state.settings.deviceLabel,
+      deviceLabel: _state.settings.displayName,
       byteSize: byteSize,
       hashPrefix: hashPrefix.substring(hashPrefix.length - 12),
       timestamp: now,

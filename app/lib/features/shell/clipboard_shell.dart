@@ -6,6 +6,8 @@ import '../../app/theme/app_theme.dart';
 import '../../core/bridge/engine_contract.dart';
 import '../../core/controller/clipboard_controller.dart';
 
+const double _desktopHeaderHeight = 72;
+
 enum ClipboardSection {
   overview(Icons.dashboard_outlined, Icons.dashboard, '总览', '总览'),
   send(Icons.send_outlined, Icons.send, '发送', '发送'),
@@ -147,13 +149,17 @@ class _SideNav extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            height: 72,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
+          const SizedBox(
+            height: _desktopHeaderHeight,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Center(child: _BrandMark()),
+              ),
             ),
-            child: const Center(child: _BrandMark()),
           ),
           Expanded(
             child: ListView(
@@ -215,8 +221,8 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = Theme.of(context).textTheme.titleLarge;
     return Container(
-      constraints: const BoxConstraints(minHeight: 72),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      height: _desktopHeaderHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: const BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
@@ -527,7 +533,8 @@ class _SettingsSection extends StatefulWidget {
 class _SettingsSectionState extends State<_SettingsSection> {
   late final TextEditingController _parentEndpoint;
   late final TextEditingController _topic;
-  late final TextEditingController _deviceLabel;
+  late final TextEditingController _deviceId;
+  late final TextEditingController _displayName;
   late final TextEditingController _maxInlineBytes;
   late final TextEditingController _transferProvider;
   late final TextEditingController _transferRef;
@@ -538,7 +545,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
     final settings = widget.state.settings;
     _parentEndpoint = TextEditingController(text: settings.parentEndpoint);
     _topic = TextEditingController(text: settings.topic);
-    _deviceLabel = TextEditingController(text: settings.deviceLabel);
+    _deviceId = TextEditingController(text: settings.deviceId);
+    _displayName = TextEditingController(text: settings.displayName);
     _maxInlineBytes = TextEditingController(
       text: settings.maxInlineBytes.toString(),
     );
@@ -552,7 +560,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
     if (oldWidget.state.settings != widget.state.settings) {
       _syncController(_parentEndpoint, widget.state.settings.parentEndpoint);
       _syncController(_topic, widget.state.settings.topic);
-      _syncController(_deviceLabel, widget.state.settings.deviceLabel);
+      _syncController(_deviceId, widget.state.settings.deviceId);
+      _syncController(_displayName, widget.state.settings.displayName);
       _syncController(
         _maxInlineBytes,
         widget.state.settings.maxInlineBytes.toString(),
@@ -569,7 +578,8 @@ class _SettingsSectionState extends State<_SettingsSection> {
   void dispose() {
     _parentEndpoint.dispose();
     _topic.dispose();
-    _deviceLabel.dispose();
+    _deviceId.dispose();
+    _displayName.dispose();
     _maxInlineBytes.dispose();
     _transferProvider.dispose();
     _transferRef.dispose();
@@ -614,10 +624,17 @@ class _SettingsSectionState extends State<_SettingsSection> {
                     ),
                   ),
                   TextField(
-                    controller: _deviceLabel,
+                    controller: _deviceId,
                     decoration: const InputDecoration(
-                      labelText: '设备标签',
+                      labelText: '设备 ID',
                       prefixIcon: Icon(Icons.devices_outlined),
+                    ),
+                  ),
+                  TextField(
+                    controller: _displayName,
+                    decoration: const InputDecoration(
+                      labelText: '显示名称',
+                      prefixIcon: Icon(Icons.badge_outlined),
                     ),
                   ),
                   TextField(
@@ -731,13 +748,19 @@ class _SettingsSectionState extends State<_SettingsSection> {
       );
       return;
     }
+    final nextDeviceId = _deviceId.text.trim().isEmpty
+        ? 'local-device'
+        : _deviceId.text.trim();
+    final nextDisplayName = _displayName.text.trim().isEmpty
+        ? nextDeviceId
+        : _displayName.text.trim();
     await _update(
       widget.state.settings.copyWith(
         parentEndpoint: _parentEndpoint.text,
         topic: _topic.text,
-        deviceLabel: _deviceLabel.text.trim().isEmpty
-            ? 'local-device'
-            : _deviceLabel.text.trim(),
+        deviceId: nextDeviceId,
+        displayName: nextDisplayName,
+        deviceLabel: nextDisplayName,
         maxInlineBytes: parsedLimit,
         transferProvider: _transferProvider.text.trim(),
         transferRef: _transferRef.text.trim(),
@@ -1473,6 +1496,7 @@ class _BrandMark extends StatelessWidget {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'ClipboardNode',

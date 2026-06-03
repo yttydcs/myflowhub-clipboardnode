@@ -154,6 +154,15 @@ class MobileEngineBridge implements ClipboardEngineBridge {
         settings: _state.settings.copyWith(
           enabled: runtimeData['Enabled'] as bool? ?? _state.settings.enabled,
           topic: runtimeData['Topic'] as String? ?? _state.settings.topic,
+          deviceId: decoded['DeviceID'] as String? ?? _state.settings.deviceId,
+          displayName:
+              decoded['DisplayName'] as String? ??
+              decoded['DeviceLabel'] as String? ??
+              _state.settings.displayName,
+          deviceLabel:
+              decoded['DisplayName'] as String? ??
+              decoded['DeviceLabel'] as String? ??
+              _state.settings.deviceLabel,
           autoWatch:
               runtimeData['AutoWatch'] as bool? ?? _state.settings.autoWatch,
           autoApply:
@@ -194,7 +203,7 @@ class MobileEngineBridge implements ClipboardEngineBridge {
       kind: kind,
       title: action,
       detail: 'TopicBus',
-      deviceLabel: _state.settings.deviceLabel,
+      deviceLabel: _state.settings.displayName,
       byteSize: (decoded['Size'] as num?)?.toInt() ?? 0,
       hashPrefix: decoded['HashPrefix'] as String? ?? '',
       timestamp: now,

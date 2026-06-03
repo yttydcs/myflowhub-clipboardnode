@@ -106,8 +106,8 @@ The default security model is the private MyFlowHub topology plus authenticated 
 1. Load config.
 2. Initialize engine with platform clipboard adapter and TopicBus client.
 3. Connect to the configured `parent_endpoint`.
-4. Register or rebind the local device identity if needed.
-5. Login with the local device identity.
+4. Register or rebind the local device identity from `device_id` if needed.
+5. Login with the local device identity and send `display_name` as auth metadata.
 6. If `enabled=true`, subscribe to `topic`.
 7. Start platform clipboard watcher.
 
@@ -195,6 +195,8 @@ type Config struct {
     ParentEndpoint string `json:"parent_endpoint"`
     Topic          string `json:"topic"`
     MaxInlineBytes int    `json:"max_inline_bytes"`
+    DeviceID       string `json:"device_id,omitempty"`
+    DisplayName    string `json:"display_name,omitempty"`
     DeviceLabel    string `json:"device_label,omitempty"`
     AutoWatch      bool   `json:"auto_watch"`
     AutoApply      bool   `json:"auto_apply"`
@@ -204,6 +206,9 @@ type Config struct {
 
 Default `ParentEndpoint` should be `127.0.0.1:9000`.
 Default `MaxInlineBytes` should be `65536`.
+Default `DeviceID` should be `local-device`.
+`DisplayName` falls back to `DeviceID` when blank.
+`DeviceLabel` is retained as a legacy compatibility alias and should normalize to the display name.
 Default `Enabled`, `AutoWatch`, `AutoApply`, and persistent body retention should be conservative and off unless the user enables them explicitly.
 
 ### UI-safe Status
@@ -215,6 +220,8 @@ type Status struct {
     ParentEndpoint string
     Enabled bool
     Topic string
+    DeviceID string
+    DisplayName string
     DeviceLabel string
     AutoWatch bool
     AutoApply bool

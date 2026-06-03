@@ -36,6 +36,8 @@ type Settings struct {
 	Enabled          bool   `json:"enabled"`
 	ParentEndpoint   string `json:"parent_endpoint"`
 	Topic            string `json:"topic"`
+	DeviceID         string `json:"device_id,omitempty"`
+	DisplayName      string `json:"display_name,omitempty"`
 	DeviceLabel      string `json:"device_label,omitempty"`
 	MaxInlineBytes   int    `json:"max_inline_bytes"`
 	AutoWatch        bool   `json:"auto_watch"`
@@ -53,6 +55,8 @@ type Status struct {
 	ParentEndpoint   string `json:"parent_endpoint"`
 	Enabled          bool   `json:"enabled"`
 	Topic            string `json:"topic"`
+	DeviceID         string `json:"device_id,omitempty"`
+	DisplayName      string `json:"display_name,omitempty"`
 	DeviceLabel      string `json:"device_label,omitempty"`
 	AutoWatch        bool   `json:"auto_watch"`
 	AutoApply        bool   `json:"auto_apply"`

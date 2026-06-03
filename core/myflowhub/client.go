@@ -146,36 +146,45 @@ func (c *Client) Connect(ctx context.Context, endpoint string) error {
 	return nil
 }
 
-func (c *Client) EnsureIdentity(ctx context.Context, deviceID string) (AuthState, error) {
+func (c *Client) EnsureIdentity(ctx context.Context, deviceID string, displayName string) (AuthState, error) {
 	if c == nil {
 		return AuthState{}, errors.New("client is nil")
 	}
 	deviceID = strings.TrimSpace(deviceID)
+	displayName = normalizeDisplayName(displayName, deviceID)
 	if deviceID == "" {
 		return AuthState{}, errors.New("device_id is required")
 	}
 	st := c.AuthState()
+	savedDeviceID := strings.TrimSpace(st.DeviceID)
+	if (savedDeviceID != "" && savedDeviceID != deviceID) || (savedDeviceID == "" && st.NodeID != 0) {
+		if err := c.ClearAuth(); err != nil {
+			return AuthState{}, fmt.Errorf("clear stale auth snapshot: %w", err)
+		}
+		st = AuthState{}
+	}
 	if st.NodeID != 0 {
-		if !st.LoggedIn || strings.TrimSpace(st.DeviceID) != deviceID {
-			return c.Login(ctx, deviceID, st.NodeID)
+		if !st.LoggedIn {
+			return c.Login(ctx, deviceID, displayName, st.NodeID)
 		}
 		return st, nil
 	}
-	if _, err := c.Register(ctx, deviceID); err != nil {
+	if _, err := c.Register(ctx, deviceID, displayName); err != nil {
 		return AuthState{}, err
 	}
 	st = c.AuthState()
 	if st.NodeID == 0 {
 		return AuthState{}, errors.New("register did not return node_id")
 	}
-	return c.Login(ctx, deviceID, st.NodeID)
+	return c.Login(ctx, deviceID, displayName, st.NodeID)
 }
 
-func (c *Client) Register(ctx context.Context, deviceID string) (AuthState, error) {
+func (c *Client) Register(ctx context.Context, deviceID string, displayName string) (AuthState, error) {
 	if c == nil {
 		return AuthState{}, errors.New("client is nil")
 	}
 	deviceID = strings.TrimSpace(deviceID)
+	displayName = normalizeDisplayName(displayName, deviceID)
 	if deviceID == "" {
 		return AuthState{}, errors.New("device_id is required")
 	}
@@ -187,7 +196,7 @@ func (c *Client) Register(ctx context.Context, deviceID string) (AuthState, erro
 		c.storeLastError(err)
 		return AuthState{}, err
 	}
-	payload, err := sdktransport.EncodeMessage(protoauth.ActionRegister, registerData(deviceID, pub))
+	payload, err := sdktransport.EncodeMessage(protoauth.ActionRegister, registerData(deviceID, displayName, pub))
 	if err != nil {
 		return AuthState{}, err
 	}
@@ -214,11 +223,12 @@ func (c *Client) Register(ctx context.Context, deviceID string) (AuthState, erro
 	return c.AuthState(), nil
 }
 
-func (c *Client) Login(ctx context.Context, deviceID string, nodeID uint32) (AuthState, error) {
+func (c *Client) Login(ctx context.Context, deviceID string, displayName string, nodeID uint32) (AuthState, error) {
 	if c == nil {
 		return AuthState{}, errors.New("client is nil")
 	}
 	deviceID = strings.TrimSpace(deviceID)
+	displayName = normalizeDisplayName(displayName, deviceID)
 	if deviceID == "" {
 		return AuthState{}, errors.New("device_id is required")
 	}
@@ -238,7 +248,7 @@ func (c *Client) Login(ctx context.Context, deviceID string, nodeID uint32) (Aut
 		c.storeLastError(err)
 		return AuthState{}, err
 	}
-	payload, err := sdktransport.EncodeMessage(protoauth.ActionLogin, loginData(deviceID, nodeID, ts, nonce, sig))
+	payload, err := sdktransport.EncodeMessage(protoauth.ActionLogin, loginData(deviceID, displayName, nodeID, ts, nonce, sig))
 	if err != nil {
 		return AuthState{}, err
 	}
@@ -621,22 +631,32 @@ func responseError(prefix string, code int, msg string) error {
 	return errors.New(msg)
 }
 
-func registerData(deviceID string, pub string) protoauth.RegisterData {
+func normalizeDisplayName(displayName string, fallbackDeviceID string) string {
+	displayName = strings.TrimSpace(displayName)
+	if displayName != "" {
+		return displayName
+	}
+	return strings.TrimSpace(fallbackDeviceID)
+}
+
+func registerData(deviceID string, displayName string, pub string) protoauth.RegisterData {
 	deviceID = strings.TrimSpace(deviceID)
+	displayName = normalizeDisplayName(displayName, deviceID)
 	return protoauth.RegisterData{
 		DeviceID:    deviceID,
 		PubKey:      pub,
 		NodePub:     pub,
-		DisplayName: deviceID,
+		DisplayName: displayName,
 	}
 }
 
-func loginData(deviceID string, nodeID uint32, ts int64, nonce string, sig string) protoauth.LoginData {
+func loginData(deviceID string, displayName string, nodeID uint32, ts int64, nonce string, sig string) protoauth.LoginData {
 	deviceID = strings.TrimSpace(deviceID)
+	displayName = normalizeDisplayName(displayName, deviceID)
 	return protoauth.LoginData{
 		DeviceID:    deviceID,
 		NodeID:      nodeID,
-		DisplayName: deviceID,
+		DisplayName: displayName,
 		TS:          ts,
 		Nonce:       nonce,
 		Sig:         sig,
