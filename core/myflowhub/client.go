@@ -187,11 +187,7 @@ func (c *Client) Register(ctx context.Context, deviceID string) (AuthState, erro
 		c.storeLastError(err)
 		return AuthState{}, err
 	}
-	payload, err := sdktransport.EncodeMessage(protoauth.ActionRegister, protoauth.RegisterData{
-		DeviceID: deviceID,
-		PubKey:   pub,
-		NodePub:  pub,
-	})
+	payload, err := sdktransport.EncodeMessage(protoauth.ActionRegister, registerData(deviceID, pub))
 	if err != nil {
 		return AuthState{}, err
 	}
@@ -242,14 +238,7 @@ func (c *Client) Login(ctx context.Context, deviceID string, nodeID uint32) (Aut
 		c.storeLastError(err)
 		return AuthState{}, err
 	}
-	payload, err := sdktransport.EncodeMessage(protoauth.ActionLogin, protoauth.LoginData{
-		DeviceID: deviceID,
-		NodeID:   nodeID,
-		TS:       ts,
-		Nonce:    nonce,
-		Sig:      sig,
-		Alg:      "ES256",
-	})
+	payload, err := sdktransport.EncodeMessage(protoauth.ActionLogin, loginData(deviceID, nodeID, ts, nonce, sig))
 	if err != nil {
 		return AuthState{}, err
 	}
@@ -449,6 +438,10 @@ func (c *Client) Close() error {
 	st.LoggedIn = false
 	c.auth = st
 	c.authMu.Unlock()
+	if err := c.saveAuthSnapshot(st); err != nil {
+		c.storeLastError(err)
+		return err
+	}
 	return nil
 }
 
@@ -597,6 +590,7 @@ func (c *Client) loadAuthSnapshot() error {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return err
 	}
+	st.LoggedIn = false
 	c.authMu.Lock()
 	c.auth = st
 	c.authMu.Unlock()
@@ -625,4 +619,27 @@ func responseError(prefix string, code int, msg string) error {
 		msg = fmt.Sprintf("%s failed (code=%d)", prefix, code)
 	}
 	return errors.New(msg)
+}
+
+func registerData(deviceID string, pub string) protoauth.RegisterData {
+	deviceID = strings.TrimSpace(deviceID)
+	return protoauth.RegisterData{
+		DeviceID:    deviceID,
+		PubKey:      pub,
+		NodePub:     pub,
+		DisplayName: deviceID,
+	}
+}
+
+func loginData(deviceID string, nodeID uint32, ts int64, nonce string, sig string) protoauth.LoginData {
+	deviceID = strings.TrimSpace(deviceID)
+	return protoauth.LoginData{
+		DeviceID:    deviceID,
+		NodeID:      nodeID,
+		DisplayName: deviceID,
+		TS:          ts,
+		Nonce:       nonce,
+		Sig:         sig,
+		Alg:         "ES256",
+	}
 }

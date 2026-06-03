@@ -108,6 +108,12 @@ func (e *Engine) Start(ctx context.Context) error {
 		e.recordError(err)
 		return fmt.Errorf("connect myflowhub: %w", err)
 	}
+	cleanupTransport := true
+	defer func() {
+		if cleanupTransport && e.transport != nil {
+			_ = e.transport.Close()
+		}
+	}()
 	deviceID := strings.TrimSpace(cfg.DeviceLabel)
 	if deviceID == "" {
 		deviceID = "clipboardnode"
@@ -142,6 +148,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.started = true
 	e.lastErr = ""
 	e.mu.Unlock()
+	cleanupTransport = false
 	go e.consumeRuntime(runCtx, rt, done)
 	return nil
 }

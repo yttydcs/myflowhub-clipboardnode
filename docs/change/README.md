@@ -6,6 +6,7 @@ Completed workflow archives for ClipboardNode.
 
 - [2026-06-02_windows-unsigned-release-preview.md](2026-06-02_windows-unsigned-release-preview.md)
 - [2026-06-02_conditional-release-builds.md](2026-06-02_conditional-release-builds.md)
+- [2026-06-02_clipboardnode-startup-lifecycle.md](2026-06-02_clipboardnode-startup-lifecycle.md)
 - [2026-06-02_user-friendly-download-package.md](2026-06-02_user-friendly-download-package.md)
 - [2026-06-02_tag-release-ci.md](2026-06-02_tag-release-ci.md)
 - [2026-06-02_clipboard-full-platform-sync.md](2026-06-02_clipboard-full-platform-sync.md)

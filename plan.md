@@ -1,175 +1,219 @@
-# Windows Unsigned Release Preview Plan
+# Plan - clipboardnode-startup-lifecycle
 
-## Goal
+## Workflow Information
+- Repo: `D:/project/MyFlowHub3/repo/MyFlowHub-ClipboardNode`
+- Branch: `fix/clipboardnode-startup-lifecycle`
+- Base: `master` at `3c0e539`
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Current Stage: 4 - Change Archive
 
-Allow tag releases to include a clearly labeled unsigned Windows preview package when Windows production code-signing secrets are not configured, without presenting it as a signed production Windows asset.
+## Stage Records
 
-## Current State
+### Initialization
+- guide.md: read from `D:/project/MyFlowHub3/guide.md`; worktrees must stay under `D:/project/MyFlowHub3/worktrees`.
+- base/worktree confirmation: main repo `master` was clean; dedicated worktree created for this workflow.
+- Participating repo: `MyFlowHub-ClipboardNode` only.
 
-- Repo: `D:\project\MyFlowHub3\repo\MyFlowHub-ClipboardNode`
-- Worktree: `D:\project\MyFlowHub3\worktrees\chore-windows-unsigned-release-preview\MyFlowHub-ClipboardNode`
-- Branch: `chore/windows-unsigned-release-preview`
-- Base: `master`
-- Current stage: `4 - Change Archive`
-- Current release behavior:
-  - Linux and Web always build.
-  - Android builds when signing secrets are configured.
-  - Windows is skipped when `WINDOWS_CODESIGN_PFX_*` secrets are missing.
+### Stage 1 - Requirements Analysis
+#### Goal
+Make ClipboardNode fail cleanly when TopicBus subscription times out and improve node identification in management UIs without changing MyFlowHub wire protocols.
 
-## Requirements And Specs Impact
+#### Scope
+- Must: clean up the transport/session when startup fails after connection or authentication.
+- Must: treat persisted `logged_in` as stale session state on process start so reconnect always performs login and binds the new TCP session.
+- Must: surface the startup error without leaving a misleading connected state.
+- Must: include a stable display name in auth register/login payloads when the configured device label is available.
+- Optional: add focused unit tests for failure cleanup and auth payload display names.
+- Not doing: changing TopicBus, Auth, Management, SDK, Server, SubProto, or remote Hub behavior.
 
-- Requirements impact: none.
-- Specs impact: none.
-- Related requirements: `docs/requirements/clipboard-sync.md`.
-- Related specs: `docs/specs/clipboard-sync.md`.
-- Related lessons:
-  - `docs/lessons/debug-latest-ci-native-exit-flutter-material.md`
+#### Use Cases
+- A user connects ClipboardNode to a Hub where TopicBus subscribe does not return; the app reports failure and does not appear half-started.
+- A user opens MyFlowHub-Win device tree after ClipboardNode connects; if the Hub lists the node, the display name should be meaningful.
 
-## Scope
+#### Functional Requirements
+- Startup must connect, authenticate, and subscribe before reporting a started runtime.
+- A failed runtime subscription must clear the local transport connection state.
+- Auth payloads should carry the user-visible device label as display metadata when protocol fields support it.
+- Existing auth snapshot behavior must remain compatible for `device_id`, `node_id`, and `hub_id`, while `logged_in` remains an in-memory session property.
 
-### Must
+#### Non-functional Requirements
+- No clipboard text may be logged or persisted.
+- Keep the change local to ClipboardNode.
+- Preserve existing public behavior for successful startup.
+- Avoid live Hub dependency in tests.
 
-- Build Windows on tag releases even when Windows code-signing secrets are missing.
-- Keep signing when `WINDOWS_CODESIGN_PFX_BASE64` and `WINDOWS_CODESIGN_PFX_PASSWORD` exist.
-- Publish unsigned Windows assets only with explicit preview naming.
-- Keep signed Windows asset names unchanged when signing secrets exist.
-- Make Release Notes and README state that unsigned Windows preview assets are not trusted production signed packages.
-- Keep macOS/iOS skip behavior unchanged until their signing materials exist.
+#### Inputs / Outputs
+- Inputs: runtime config, `device_label`, parent endpoint, TopicBus subscription result.
+- Outputs: UI-safe status, auth payload, transport cleanup on startup failure.
 
-### Not Doing
+#### Edge Cases
+- Missing device label falls back to `clipboardnode`.
+- Connect failure should not try to close an unconnected session beyond best effort.
+- Runtime construction failure after auth should also close the transport.
+- Subscribe timeout remains reported as the original error.
 
-- Add Windows code signing certificates.
-- Add Azure Artifact Signing or SignPath integration.
-- Change runtime/product behavior.
-- Reissue the already-published `v0.1.0` release unless requested separately.
+#### Acceptance Criteria
+- `Engine.Start` closes `myflowhub.Client` on any failure after `Connect` succeeds.
+- Loading an auth snapshot with `logged_in=true` does not skip login on the next process start.
+- Closing the client persists `logged_in=false` without dropping the saved node identity.
+- `Status().Connected` becomes false after a startup failure caused by runtime subscribe failure.
+- Register/login payloads include display name when supported by proto structs.
+- Existing targeted Go tests pass.
 
-## Architecture
+#### Risks
+- The remote Hub may still not respond to TopicBus subscribe; this change makes the local state correct but does not fix remote routing/module deployment.
+- If the currently deployed auth server ignores display names, node visibility still depends on management listing online sessions.
 
-- Change Windows capability detection to always build Windows, with status text distinguishing signed production from unsigned preview.
-- In the Windows packaging step, select output names based on whether signing secrets are present.
-- Signed outputs retain:
-  - `myflowhub-clipboardnode-windows-release.zip`
-  - `clipboardnode-windows-amd64.exe`
-  - `clipboardnode-bridge-windows-amd64.exe`
-- Unsigned preview outputs use:
-  - `myflowhub-clipboardnode-windows-unsigned-preview.zip`
-  - `clipboardnode-windows-amd64-unsigned-preview.exe`
-  - `clipboardnode-bridge-windows-amd64-unsigned-preview.exe`
-- Keep publish asset selection dynamic by adding the unsigned preview names to `known_assets`.
+### Stage 2 - Architecture Design
+#### Overall Solution
+Keep the fix inside ClipboardNode's engine and MyFlowHub client wrappers. `Engine.Start` will use a local cleanup guard once `Connect` succeeds and release the guard only after `Runtime.Start` succeeds. Auth snapshots will preserve reusable identity fields but normalize session login state to false when loaded from disk. Auth register/login will populate existing display-name fields, if present in the imported protocol types.
 
-## Task Checklist
+#### Alternatives Considered
+- Retry subscribe automatically: deferred because it changes runtime behavior and could mask remote protocol issues.
+- Increase subscribe timeout: rejected because the observed problem is no response, not slow response.
+- Change Win console tree: rejected because it correctly lists online management children and cannot infer ClipboardNode auth snapshots.
 
-### WIN-1 - Enable Windows Build With Preview Status
+#### Module Responsibilities
+- `core/engine`: connection lifecycle orchestration and startup cleanup.
+- `core/myflowhub`: auth payload construction and request tests.
+- `core/runtime`: unchanged; it already records `transport_failed` and returns explicit subscribe errors.
 
-- Files: `.github/workflows/release.yml`
-- Goal: Windows job runs for tag releases without signing secrets.
-- Acceptance:
-  - `build_windows=true` for tag release even when Windows signing secrets are missing.
-  - `windows_status` says unsigned preview when secrets are missing.
-  - Signed status remains signed production when secrets exist.
-- Tests:
-  - YAML structural checks.
-  - Capability simulation.
-- Rollback:
-  - Restore `secret_status "windows"` hard gate.
+#### Data / Call Flow
+1. `Engine.Start` calls transport `Connect`.
+2. A cleanup guard is armed.
+3. `EnsureIdentity` reuses saved node identity but logs in again unless the current in-memory session is already logged in.
+4. `EnsureIdentity` registers/logs in using device label metadata.
+5. Runtime is created and subscribes to TopicBus.
+6. On any error before successful runtime start, cleanup guard closes transport and original error is returned.
+7. On success, cleanup guard is released and normal runtime consumption begins.
 
-### WIN-2 - Rename Unsigned Windows Outputs
+#### Interface Drafts
+- No new public interfaces.
+- Existing auth payloads use `DisplayName` when present.
 
-- Files: `.github/workflows/release.yml`
-- Goal: unsigned Windows artifacts are visibly marked as preview.
-- Acceptance:
-  - Unsigned zip/exe names include `unsigned-preview`.
-  - Signed zip/exe names remain unchanged.
-  - Package README inside unsigned zip warns that the package is unsigned preview.
-- Tests:
-  - Static script checks.
-  - Bash/Pwsh syntax checks.
-- Rollback:
-  - Restore static signed output names.
+#### Error Handling and Safety
+- Cleanup errors are best-effort and should not replace the root startup error.
+- Existing `recordError` continues to store the root error for UI status.
+- No clipboard payload data enters logs or status.
 
-### WIN-3 - Publish And Document Preview Assets
+#### Performance and Testing Strategy
+- No new polling or repeated network I/O.
+- Unit tests use fakes or `net.Pipe`/local SDK hooks rather than live Hub.
+- Run `go test ./core/engine ./core/myflowhub ./core/runtime -count=1`.
 
-- Files:
-  - `.github/workflows/release.yml`
-  - `README.md`
-- Goal: Release upload and user docs describe unsigned Windows preview explicitly.
-- Acceptance:
-  - `known_assets` includes unsigned Windows preview names.
-  - README release asset list includes unsigned Windows preview package.
-  - README still documents required secrets for signed Windows production package.
-- Tests:
-  - Publish asset simulation.
-  - Markdown review.
-- Rollback:
-  - Remove unsigned preview names and README wording.
+#### Extensibility Design Points
+- Startup cleanup is local and does not constrain future reconnect/backoff behavior.
+- Display-name helper can be reused if future auth metadata expands.
 
-### WIN-4 - Archive Workflow
+### Stage 3.1 - Planning
+#### Project Goal and Current State
+Current runtime can leave an established transport and logged-in auth snapshot after TopicBus subscription times out, causing misleading UI state. The remote Hub timeout remains a separate external concern.
 
-- Files:
-  - `docs/change/YYYY-MM-DD_windows-unsigned-release-preview.md`
-  - `docs/change/README.md`
-- Goal: record scope, validation, and rollback.
-- Acceptance:
-  - Archive includes requirements/specs/lessons impact and task mapping.
-- Tests:
-  - `git diff --check`.
-- Rollback:
-  - Remove archive and index entry.
+#### Docs Governance Routing Decision
+Using `$m-docs` routing:
+- Requirements impact: none
+- Specs impact: none
+- Related requirements: `docs/requirements/clipboard-sync.md`
+- Related specs: `docs/specs/clipboard-sync.md`
+- Related lessons: create `docs/lessons/startup-subscribe-timeout-half-connected.md`
+- Change archive destination: `docs/change/2026-06-02_clipboardnode-startup-lifecycle.md`
 
-## Parallelism Assessment
+#### Executable Task List
+- T1: Clean up transport when `Engine.Start` fails after connection.
+- T2: Treat persisted auth login state as stale and include ClipboardNode display name in auth register/login payloads.
+- T3: Add focused tests and run targeted validation.
+- T4: Archive the workflow and reusable lesson.
 
-No sub-agent delegation. The change is a tightly coupled workflow/documentation edit in one repo.
+#### Task Details
+##### T1 - Startup Failure Cleanup
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: ensure failed subscribe/runtime startup does not leave transport connected.
+- Files / Modules: `core/engine`
+- Write Set: `core/engine/engine.go`, `core/engine/*_test.go`
+- Acceptance: subscribe failure returns original error and transport status is disconnected.
+- Test Points: fake transport/runtime path or engine test using fake transport.
+- Rollback: revert engine cleanup changes and tests.
 
-## Risks
+##### T2 - Auth Session Snapshot and Display Name
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: send configured device label as display name during register/login and never trust persisted `logged_in=true` as proof of a live session.
+- Files / Modules: `core/myflowhub`
+- Write Set: `core/myflowhub/client.go`, `core/myflowhub/client_test.go`
+- Acceptance: payload includes display name, loaded snapshots force `LoggedIn=false`, and `Close` persists `logged_in=false`.
+- Test Points: request payload and snapshot persistence unit tests.
+- Rollback: revert display-name payload fields and tests.
 
-- Users may treat unsigned preview as production. Mitigate with asset names, release notes status, README wording, and package-local README warning.
-- Windows publish names can diverge from upload names. Mitigate by deriving names once and adding both signed and unsigned names to `known_assets`.
-- Signed Windows path must remain unchanged for future certificate configuration.
+##### T3 - Validation
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: verify changed behavior and no regressions in targeted packages.
+- Files / Modules: tests only
+- Write Set: none outside test files.
+- Acceptance: targeted Go tests pass.
+- Test Points: `go test ./core/engine ./core/myflowhub ./core/runtime -count=1`.
+- Rollback: fix failed tests or revert task changes.
 
-## Stage Gate
+##### T4 - Docs Archive
+- Owner: main agent
+- Worktree: `D:/project/MyFlowHub3/worktrees/fix-clipboardnode-startup-lifecycle/MyFlowHub-ClipboardNode`
+- Plan Path: `plan.md`
+- Goal: create change archive and lesson.
+- Files / Modules: `docs/change`, `docs/lessons`
+- Write Set: `docs/change/2026-06-02_clipboardnode-startup-lifecycle.md`, `docs/lessons/startup-subscribe-timeout-half-connected.md`, `docs/lessons/README.md`
+- Acceptance: change and lesson are discoverable and record requirements/spec impact.
+- Test Points: docs content review.
+- Rollback: remove archive/lesson if workflow is abandoned.
+
+#### Dependencies
+- Remote Hub investigation remains external and is not required for this local lifecycle fix.
+
+#### Risks and Notes
+- This fix will make failed startup appear disconnected; users may still need remote Hub logs to resolve subscribe timeout.
+- No sub-agents are planned because T1/T2 share startup/auth context and the write set is small.
+
+#### Parallelism Assessment
+- Independent Task IDs exist, but T1/T2 are tightly coupled through startup identity flow and tests are small.
+- Sub-agents: not used due tight coupling, limited write set, and need for main-agent integration under `$m-autoflow`.
+
+#### Issue List
+- None blocking.
 
 阻塞：否
-进入 3.3
+进入 3.2
 
-## Stage 3.2 Implementation Summary
+### Stage 3.2 - Implementation
+- T1 completed: `Engine.Start` now closes transport on any failure after a successful connect and before runtime startup is fully established.
+- T2 completed: loaded auth snapshots force `LoggedIn=false`, `Close` persists `logged_in=false`, and register/login payloads include `display_name`.
+- T3 completed: added tests for startup failure cleanup, display-name payloads, stale loaded login state, and close persistence.
+- Sub-agents: not used because write set and context were tightly coupled.
 
-- `WIN-1`: changed Windows platform capability detection so tag releases build Windows even without code-signing secrets, with status text marking unsigned preview mode.
-- `WIN-2`: changed Windows packaging to derive output names from signing availability:
-  - signed path keeps `myflowhub-clipboardnode-windows-release.zip`, `clipboardnode-windows-amd64.exe`, and `clipboardnode-bridge-windows-amd64.exe`;
-  - unsigned path emits `myflowhub-clipboardnode-windows-unsigned-preview.zip`, `clipboardnode-windows-amd64-unsigned-preview.exe`, and `clipboardnode-bridge-windows-amd64-unsigned-preview.exe`.
-- `WIN-2`: added package-local `README-WINDOWS.txt` warning for unsigned preview packages.
-- `WIN-3`: added unsigned Windows preview names to publish asset discovery and documented the behavior in `README.md`.
+### Stage 3.3 - Code Review
+- 需求覆盖: 通过
+- 架构合理性: 通过
+- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）: 通过
+- 可读性与一致性: 通过
+- 可扩展性与配置化: 通过
+- 稳定性与安全: 通过
+- 测试覆盖情况: 通过
+- 子Agent治理与审计（任务映射、上下文完整性、文件所有权、结果复核、冲突处理、记录完整性）: 通过；未使用子Agent
 
-## Stage 3.3 Code Review
-
-- 需求覆盖: 通过. Tag releases can include Windows release-mode assets without code-signing secrets while clearly marking them unsigned preview.
-- 架构合理性: 通过. Capability detection remains in `prepare-release`; Windows build remains one job; publish logic remains dynamic asset discovery.
-- 性能风险: 通过. Changes only affect CI naming/packaging conditionals and do not add repeated expensive work beyond the already-enabled Windows build.
-- 可读性与一致性: 通过. Signed and unsigned names are derived once in the Windows packaging script.
-- 可扩展性与配置化: 通过. Future Windows signing secrets automatically restore the signed production asset names.
-- 稳定性与安全: 通过. Unsigned Windows artifacts carry explicit preview names and package-local warnings; signed production naming is reserved for configured signing secrets.
-- 测试覆盖情况: 通过. YAML structure, bash syntax, PowerShell syntax, Windows capability simulations, publish asset simulation, and `git diff --check` passed.
-- 子Agent治理与审计: 通过. Parallelism was assessed; no sub-agent was dispatched.
-
-## Stage 4 Change Archive
-
-- 使用 `$m-docs` 校验计划文档路由、requirements/specs 影响和 lessons 查询入口。
-- Requirements impact: none.
-- Specs impact: none.
-- Lessons impact: none. 本次没有暴露新的可复用故障模式；归档中记录 Windows unsigned preview 排查线索即可。
-- Archive: `docs/change/2026-06-02_windows-unsigned-release-preview.md`.
-- Index updated: `docs/change/README.md`.
-- Hosted GitHub Actions dry-run:
-  - Run: <https://github.com/yttydcs/myflowhub-clipboardnode/actions/runs/26831337705>
-  - Result: success.
-  - `Publish GitHub Release`: skipped as expected for manual dry-run.
-  - `gh release view v0.0.0`: absent; no accidental Release was published.
-- Windows artifact inspection:
-  - Artifact outer name: `myflowhub-clipboardnode-windows-release`.
-  - Internal release asset files include `myflowhub-clipboardnode-windows-unsigned-preview.zip`, `clipboardnode-windows-amd64-unsigned-preview.exe`, and `clipboardnode-bridge-windows-amd64-unsigned-preview.exe`.
-  - Expanded package root contains `README-WINDOWS.txt` warning that the Windows package is unsigned preview, may trigger Unknown Publisher or SmartScreen warnings, and must not be treated as a signed production release.
-
-## Workflow End Gate
-
-阻塞：否
-等待用户确认 `结束workflow` 后再合并、推送 master、删除远端分支并清理 worktree。
+### Stage 4 - Change Archive
+- 使用 `$m-docs` 完成归档路由复核。
+- Requirements impact: none
+- Specs impact: none
+- Lessons impact: updated
+- Related requirements: `docs/requirements/clipboard-sync.md`
+- Related specs: `docs/specs/clipboard-sync.md`
+- Related lessons: `docs/lessons/startup-subscribe-timeout-half-connected.md`
+- Change archive: `docs/change/2026-06-02_clipboardnode-startup-lifecycle.md`
+- Validation:
+  - `GOWORK=off go test ./core/engine ./core/myflowhub ./core/runtime -count=1` passed
+  - `GOWORK=off go test ./... -count=1` passed
+  - `git diff --check` passed
+  - 临时运行目录复制 `%APPDATA%\MyFlowHub\ClipboardNode` 的 `config.json` 与 `node_keys.json`，使用修复后的 `build/clipboardnode-bridge.exe` 执行 `connect`，返回 `connected=true`、`logged_in=true`、`node_id=14`、`subscribed=true`
+  - 使用当前 MCP `node_id=15` 查询 `myflowhub_management_list_subtree`，Hub 1 返回节点 `8 (NAS MyFlowHub MCP)`、`15 (AI MCP)`、`14 (local-device)`、`1`，确认 ClipboardNode 在线可见
