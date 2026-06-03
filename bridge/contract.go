@@ -43,6 +43,7 @@ type Settings struct {
 	AutoWatch        bool   `json:"auto_watch"`
 	AutoApply        bool   `json:"auto_apply"`
 	HistoryRetention string `json:"history_retention"`
+	HistoryLimit     int    `json:"history_limit"`
 	TransferProvider string `json:"transfer_provider,omitempty"`
 	TransferRef      string `json:"transfer_ref,omitempty"`
 }
@@ -60,6 +61,8 @@ type Status struct {
 	DeviceLabel      string `json:"device_label,omitempty"`
 	AutoWatch        bool   `json:"auto_watch"`
 	AutoApply        bool   `json:"auto_apply"`
+	HistoryRetention string `json:"history_retention"`
+	HistoryLimit     int    `json:"history_limit"`
 	TransferProvider string `json:"transfer_provider,omitempty"`
 	TransferRef      string `json:"transfer_ref,omitempty"`
 	Started          bool   `json:"started"`
@@ -84,6 +87,7 @@ type Activity struct {
 	ByteSize    int    `json:"byte_size"`
 	HashPrefix  string `json:"hash_prefix,omitempty"`
 	TimestampMS int64  `json:"timestamp_ms"`
+	Text        string `json:"text,omitempty"`
 }
 
 type Transfer struct {

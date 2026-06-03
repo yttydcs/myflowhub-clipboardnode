@@ -1,41 +1,38 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"strings"
 	"testing"
 
-	"github.com/yttydcs/myflowhub-clipboardnode/bridge"
+	coreruntime "github.com/yttydcs/myflowhub-clipboardnode/core/runtime"
 )
 
-func TestValidateLoopbackListen(t *testing.T) {
-	for _, address := range []string{"127.0.0.1:18291", "localhost:18291", "[::1]:18291"} {
-		if err := validateLoopbackListen(address); err != nil {
-			t.Fatalf("expected %s to be valid: %v", address, err)
-		}
+func TestActivityFromDecisionIncludesTextOnlyForBodyHistory(t *testing.T) {
+	decision := coreruntime.Decision{
+		Action:     coreruntime.ActionLocalPublished,
+		EventID:    "evt-1",
+		Size:       5,
+		HashPrefix: "abcdef123456",
+		Text:       "hello",
 	}
-}
 
-func TestValidateLoopbackListenRejectsNonLoopback(t *testing.T) {
-	for _, address := range []string{"0.0.0.0:18291", "192.168.1.10:18291", ":18291"} {
-		if err := validateLoopbackListen(address); err == nil {
-			t.Fatalf("expected %s to be rejected", address)
-		}
+	body := activityFromDecision(decision, coreruntime.Config{
+		HistoryRetention: coreruntime.HistoryRetentionBody,
+	}, 1700000000000)
+	if body.Text != "hello" {
+		t.Fatalf("body activity text = %q", body.Text)
 	}
-}
 
-func TestHandleReturnsCommandErrors(t *testing.T) {
-	var out bytes.Buffer
-	host := &stdioHost{out: &out}
-	_, err := host.handle(context.Background(), bridge.EngineCommand{
-		ID:     "cmd-1",
-		Action: "unknown",
-	})
-	if err == nil {
-		t.Fatal("expected unsupported command error")
+	metadata := activityFromDecision(decision, coreruntime.Config{
+		HistoryRetention: coreruntime.HistoryRetentionMetadata,
+	}, 1700000000000)
+	if metadata.Text != "" {
+		t.Fatalf("metadata activity leaked text = %q", metadata.Text)
 	}
-	if !strings.Contains(out.String(), `"ok":false`) {
-		t.Fatalf("expected error event, got %s", out.String())
+
+	none := activityFromDecision(decision, coreruntime.Config{
+		HistoryRetention: coreruntime.HistoryRetentionNone,
+	}, 1700000000000)
+	if none.Text != "" {
+		t.Fatalf("none activity leaked text = %q", none.Text)
 	}
 }

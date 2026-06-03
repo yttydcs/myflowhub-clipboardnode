@@ -2,7 +2,12 @@ import 'dart:convert';
 
 enum ActivityKind { published, applied, pending, ignored, error }
 
-enum HistoryRetention { none, metadata }
+enum HistoryRetention { none, metadata, body }
+
+abstract final class ClipboardHistoryLimits {
+  static const defaultLimit = 256;
+  static const maxLimit = 5000;
+}
 
 class PlatformCapability {
   const PlatformCapability({
@@ -34,6 +39,7 @@ class ClipboardSettings {
     required this.autoWatch,
     required this.autoApply,
     required this.historyRetention,
+    required this.historyLimit,
     required this.transferProvider,
     required this.transferRef,
   });
@@ -49,7 +55,8 @@ class ClipboardSettings {
       maxInlineBytes: 65536,
       autoWatch: false,
       autoApply: false,
-      historyRetention: HistoryRetention.metadata,
+      historyRetention: HistoryRetention.body,
+      historyLimit: ClipboardHistoryLimits.defaultLimit,
       transferProvider: '',
       transferRef: '',
     );
@@ -65,6 +72,7 @@ class ClipboardSettings {
   final bool autoWatch;
   final bool autoApply;
   final HistoryRetention historyRetention;
+  final int historyLimit;
   final String transferProvider;
   final String transferRef;
 
@@ -79,6 +87,7 @@ class ClipboardSettings {
     bool? autoWatch,
     bool? autoApply,
     HistoryRetention? historyRetention,
+    int? historyLimit,
     String? transferProvider,
     String? transferRef,
   }) {
@@ -93,6 +102,7 @@ class ClipboardSettings {
       autoWatch: autoWatch ?? this.autoWatch,
       autoApply: autoApply ?? this.autoApply,
       historyRetention: historyRetention ?? this.historyRetention,
+      historyLimit: historyLimit ?? this.historyLimit,
       transferProvider: transferProvider ?? this.transferProvider,
       transferRef: transferRef ?? this.transferRef,
     );
@@ -110,6 +120,7 @@ class ClipboardSettings {
       'auto_watch': autoWatch,
       'auto_apply': autoApply,
       'history_retention': historyRetention.name,
+      'history_limit': historyLimit,
       'transfer_provider': transferProvider,
       'transfer_ref': transferRef,
     };
@@ -138,6 +149,26 @@ class ClipboardActivity {
   final DateTime timestamp;
 }
 
+class ClipboardHistoryEntry {
+  const ClipboardHistoryEntry({
+    required this.id,
+    required this.kind,
+    required this.text,
+    required this.deviceLabel,
+    required this.byteSize,
+    required this.hashPrefix,
+    required this.timestamp,
+  });
+
+  final String id;
+  final ActivityKind kind;
+  final String text;
+  final String deviceLabel;
+  final int byteSize;
+  final String hashPrefix;
+  final DateTime timestamp;
+}
+
 class ClipboardEngineState {
   const ClipboardEngineState({
     required this.connected,
@@ -150,6 +181,7 @@ class ClipboardEngineState {
     required this.settings,
     required this.capability,
     required this.activities,
+    required this.history,
     required this.pendingEvent,
     required this.transferStatus,
     required this.lastError,
@@ -167,6 +199,7 @@ class ClipboardEngineState {
       settings: ClipboardSettings.defaults(),
       capability: capability,
       activities: const [],
+      history: const [],
       pendingEvent: null,
       transferStatus: null,
       lastError: '',
@@ -183,6 +216,7 @@ class ClipboardEngineState {
   final ClipboardSettings settings;
   final PlatformCapability capability;
   final List<ClipboardActivity> activities;
+  final List<ClipboardHistoryEntry> history;
   final PendingClipboardEvent? pendingEvent;
   final TransferStatus? transferStatus;
   final String lastError;
@@ -199,6 +233,7 @@ class ClipboardEngineState {
     ClipboardSettings? settings,
     PlatformCapability? capability,
     List<ClipboardActivity>? activities,
+    List<ClipboardHistoryEntry>? history,
     PendingClipboardEvent? pendingEvent,
     bool clearPendingEvent = false,
     TransferStatus? transferStatus,
@@ -216,6 +251,7 @@ class ClipboardEngineState {
       settings: settings ?? this.settings,
       capability: capability ?? this.capability,
       activities: activities ?? this.activities,
+      history: history ?? this.history,
       pendingEvent: clearPendingEvent
           ? null
           : pendingEvent ?? this.pendingEvent,
@@ -298,4 +334,74 @@ class EngineEvent {
   String encode() {
     return jsonEncode({'name': name, 'data': data});
   }
+}
+
+HistoryRetention parseHistoryRetention(
+  Object? value,
+  HistoryRetention fallback,
+) {
+  final name = value is String ? value.trim() : '';
+  for (final retention in HistoryRetention.values) {
+    if (retention.name == name) {
+      return retention;
+    }
+  }
+  return fallback;
+}
+
+int parseHistoryLimit(Object? value, int fallback) {
+  final parsed = switch (value) {
+    int number => number,
+    num number => number.toInt(),
+    String text => int.tryParse(text.trim()),
+    _ => null,
+  };
+  return parsed ?? fallback;
+}
+
+void validateHistoryLimit(int limit) {
+  if (limit <= 0) {
+    throw StateError('剪贴板历史条数必须大于 0');
+  }
+  if (limit > ClipboardHistoryLimits.maxLimit) {
+    throw StateError('剪贴板历史条数不能超过 ${ClipboardHistoryLimits.maxLimit}');
+  }
+}
+
+List<ClipboardHistoryEntry> trimClipboardHistory(
+  List<ClipboardHistoryEntry> history,
+  ClipboardSettings settings,
+) {
+  if (settings.historyRetention != HistoryRetention.body) {
+    return const [];
+  }
+  return history.take(settings.historyLimit).toList(growable: false);
+}
+
+List<ClipboardHistoryEntry> appendClipboardHistory(
+  ClipboardEngineState state,
+  ClipboardActivity activity,
+  String text,
+) {
+  if (state.settings.historyRetention != HistoryRetention.body) {
+    return state.history;
+  }
+  if (text.isEmpty ||
+      activity.kind == ActivityKind.ignored ||
+      activity.kind == ActivityKind.error) {
+    return state.history;
+  }
+  final entry = ClipboardHistoryEntry(
+    id: activity.id,
+    kind: activity.kind,
+    text: text,
+    deviceLabel: activity.deviceLabel,
+    byteSize: activity.byteSize,
+    hashPrefix: activity.hashPrefix,
+    timestamp: activity.timestamp,
+  );
+  return [
+    entry,
+    ...state.history,
+  ].take(state.settings.historyLimit).toList(growable: false);
 }

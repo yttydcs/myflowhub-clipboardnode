@@ -4,6 +4,7 @@ Completed workflow archives for ClipboardNode.
 
 ## Current
 
+- [2026-06-04_clipboard-body-history.md](2026-06-04_clipboard-body-history.md)
 - [2026-06-04_clipboardnode-header-alignment.md](2026-06-04_clipboardnode-header-alignment.md)
 - [2026-06-03_clipboardnode-device-id-display-name.md](2026-06-03_clipboardnode-device-id-display-name.md)
 - [2026-06-03_compact-clipboard-text-payload.md](2026-06-03_compact-clipboard-text-payload.md)

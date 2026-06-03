@@ -138,22 +138,25 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
     if (settings.maxInlineBytes <= 0) {
       throw StateError('内联文本上限必须大于 0');
     }
+    validateHistoryLimit(settings.historyLimit);
     final normalizedDeviceId = settings.deviceId.trim().isEmpty
         ? 'local-device'
         : settings.deviceId.trim();
     final normalizedDisplayName = settings.displayName.trim().isEmpty
         ? normalizedDeviceId
         : settings.displayName.trim();
+    final next = settings.copyWith(
+      parentEndpoint: normalizedParentEndpoint,
+      topic: normalizedTopic,
+      deviceId: normalizedDeviceId,
+      displayName: normalizedDisplayName,
+      deviceLabel: normalizedDisplayName,
+    );
     _emit(
       _state.copyWith(
         hubEndpoint: normalizedParentEndpoint,
-        settings: settings.copyWith(
-          parentEndpoint: normalizedParentEndpoint,
-          topic: normalizedTopic,
-          deviceId: normalizedDeviceId,
-          displayName: normalizedDisplayName,
-          deviceLabel: normalizedDisplayName,
-        ),
+        settings: next,
+        history: trimClipboardHistory(_state.history, next),
         lastError: '',
       ),
     );
@@ -208,6 +211,7 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
           activity,
           ..._state.activities,
         ].take(20).toList(growable: false),
+        history: appendClipboardHistory(_state, activity, text),
         lastError: '',
       ),
     );
@@ -231,6 +235,7 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
     _emit(
       _state.copyWith(
         activities: const [],
+        history: const [],
         clearPendingEvent: true,
         clearTransferStatus: true,
         lastError: '',

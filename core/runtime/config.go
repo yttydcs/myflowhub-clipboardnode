@@ -6,12 +6,16 @@ import (
 )
 
 const (
-	DefaultParentEndpoint = "127.0.0.1:9000"
-	DefaultMaxInlineBytes = 65536
-	DefaultDeviceID       = "local-device"
-	HistoryRetentionNone  = "none"
-	defaultRecentLimit    = 128
-	defaultSuppressLimit  = 32
+	DefaultParentEndpoint    = "127.0.0.1:9000"
+	DefaultMaxInlineBytes    = 65536
+	DefaultDeviceID          = "local-device"
+	DefaultHistoryLimit      = 256
+	MaxHistoryLimit          = 5000
+	HistoryRetentionNone     = "none"
+	HistoryRetentionMetadata = "metadata"
+	HistoryRetentionBody     = "body"
+	defaultRecentLimit       = 128
+	defaultSuppressLimit     = 32
 )
 
 type Config struct {
@@ -25,6 +29,7 @@ type Config struct {
 	AutoWatch        bool   `json:"auto_watch"`
 	AutoApply        bool   `json:"auto_apply"`
 	HistoryRetention string `json:"history_retention,omitempty"`
+	HistoryLimit     int    `json:"history_limit,omitempty"`
 	TransferProvider string `json:"transfer_provider,omitempty"`
 	TransferRef      string `json:"transfer_ref,omitempty"`
 }
@@ -39,7 +44,8 @@ func DefaultConfig() Config {
 		DeviceLabel:      DefaultDeviceID,
 		AutoWatch:        false,
 		AutoApply:        false,
-		HistoryRetention: HistoryRetentionNone,
+		HistoryRetention: HistoryRetentionBody,
+		HistoryLimit:     DefaultHistoryLimit,
 	}
 }
 
@@ -66,7 +72,10 @@ func NormalizeConfig(cfg Config) (Config, error) {
 	}
 	cfg.DeviceLabel = cfg.DisplayName
 	if cfg.HistoryRetention == "" {
-		cfg.HistoryRetention = HistoryRetentionNone
+		cfg.HistoryRetention = HistoryRetentionBody
+	}
+	if cfg.HistoryLimit == 0 {
+		cfg.HistoryLimit = DefaultHistoryLimit
 	}
 	if cfg.MaxInlineBytes == 0 {
 		cfg.MaxInlineBytes = DefaultMaxInlineBytes
@@ -77,10 +86,18 @@ func NormalizeConfig(cfg Config) (Config, error) {
 	if cfg.MaxInlineBytes < 0 {
 		return Config{}, fmt.Errorf("max_inline_bytes must be positive")
 	}
+	if cfg.HistoryLimit < 0 {
+		return Config{}, fmt.Errorf("history_limit must be positive")
+	}
+	if cfg.HistoryLimit > MaxHistoryLimit {
+		return Config{}, fmt.Errorf("history_limit must be at most %d", MaxHistoryLimit)
+	}
 	if cfg.Enabled && cfg.Topic == "" {
 		return Config{}, fmt.Errorf("topic is required when clipboard sync is enabled")
 	}
-	if cfg.HistoryRetention != HistoryRetentionNone && cfg.HistoryRetention != "metadata" {
+	if cfg.HistoryRetention != HistoryRetentionNone &&
+		cfg.HistoryRetention != HistoryRetentionMetadata &&
+		cfg.HistoryRetention != HistoryRetentionBody {
 		return Config{}, fmt.Errorf("unsupported history_retention %q", cfg.HistoryRetention)
 	}
 	if cfg.TransferProvider == "" && cfg.TransferRef != "" {

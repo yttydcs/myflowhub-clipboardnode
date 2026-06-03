@@ -536,6 +536,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
   late final TextEditingController _deviceId;
   late final TextEditingController _displayName;
   late final TextEditingController _maxInlineBytes;
+  late final TextEditingController _historyLimit;
   late final TextEditingController _transferProvider;
   late final TextEditingController _transferRef;
 
@@ -549,6 +550,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
     _displayName = TextEditingController(text: settings.displayName);
     _maxInlineBytes = TextEditingController(
       text: settings.maxInlineBytes.toString(),
+    );
+    _historyLimit = TextEditingController(
+      text: settings.historyLimit.toString(),
     );
     _transferProvider = TextEditingController(text: settings.transferProvider);
     _transferRef = TextEditingController(text: settings.transferRef);
@@ -567,6 +571,10 @@ class _SettingsSectionState extends State<_SettingsSection> {
         widget.state.settings.maxInlineBytes.toString(),
       );
       _syncController(
+        _historyLimit,
+        widget.state.settings.historyLimit.toString(),
+      );
+      _syncController(
         _transferProvider,
         widget.state.settings.transferProvider,
       );
@@ -581,6 +589,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
     _deviceId.dispose();
     _displayName.dispose();
     _maxInlineBytes.dispose();
+    _historyLimit.dispose();
     _transferProvider.dispose();
     _transferRef.dispose();
     super.dispose();
@@ -709,7 +718,15 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 child: const Column(
                   children: [
                     ListTile(
-                      title: Text('保留日志元数据'),
+                      title: Text('保存正文历史'),
+                      leading: Icon(Icons.subject_outlined),
+                      trailing: Radio<HistoryRetention>(
+                        value: HistoryRetention.body,
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    ListTile(
+                      title: Text('仅保留日志元数据'),
                       leading: Icon(Icons.list_alt_outlined),
                       trailing: Radio<HistoryRetention>(
                         value: HistoryRetention.metadata,
@@ -717,7 +734,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       contentPadding: EdgeInsets.zero,
                     ),
                     ListTile(
-                      title: Text('不保留日志历史'),
+                      title: Text('不保留历史'),
                       leading: Icon(Icons.delete_outline),
                       trailing: Radio<HistoryRetention>(
                         value: HistoryRetention.none,
@@ -725,6 +742,17 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       contentPadding: EdgeInsets.zero,
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _historyLimit,
+                enabled: settings.historyRetention == HistoryRetention.body,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '历史条数',
+                  prefixIcon: Icon(Icons.format_list_numbered_outlined),
+                  suffixText: '条',
                 ),
               ),
             ],
@@ -748,6 +776,13 @@ class _SettingsSectionState extends State<_SettingsSection> {
       );
       return;
     }
+    final parsedHistoryLimit = int.tryParse(_historyLimit.text.trim());
+    if (parsedHistoryLimit == null) {
+      await widget.controller.updateSettings(
+        widget.state.settings.copyWith(historyLimit: -1),
+      );
+      return;
+    }
     final nextDeviceId = _deviceId.text.trim().isEmpty
         ? 'local-device'
         : _deviceId.text.trim();
@@ -762,6 +797,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
         displayName: nextDisplayName,
         deviceLabel: nextDisplayName,
         maxInlineBytes: parsedLimit,
+        historyLimit: parsedHistoryLimit,
         transferProvider: _transferProvider.text.trim(),
         transferRef: _transferRef.text.trim(),
       ),
@@ -788,38 +824,23 @@ class _ClipboardHistorySection extends StatelessWidget {
       title: '剪贴板历史',
       icon: Icons.content_paste_search_outlined,
       trailing: OutlinedButton.icon(
-        onPressed: state.activities.isEmpty ? null : controller.clearRecent,
+        onPressed: state.history.isEmpty ? null : controller.clearRecent,
         icon: const Icon(Icons.delete_sweep_outlined, size: 18),
         label: const Text('清空历史'),
       ),
-      child:
-          state.activities.isEmpty &&
-              state.pendingEvent == null &&
-              state.transferStatus == null
-          ? const _EmptyState(
+      child: state.history.isEmpty
+          ? _EmptyState(
               icon: Icons.content_paste_off_outlined,
               title: '暂无剪贴板历史',
-              detail: '仅记录元数据，不保存正文',
+              detail: state.settings.historyRetention == HistoryRetention.body
+                  ? '等待新的剪贴板正文'
+                  : '当前未保存正文',
             )
           : Column(
               children: [
-                if (state.pendingEvent != null) ...[
-                  _PendingTile(
-                    pending: state.pendingEvent!,
-                    onApply: () =>
-                        controller.applyPending(state.pendingEvent!.eventId),
-                  ),
-                  if (state.transferStatus != null ||
-                      state.activities.isNotEmpty)
-                    const Divider(),
-                ],
-                if (state.transferStatus != null) ...[
-                  _TransferTile(status: state.transferStatus!),
-                  if (state.activities.isNotEmpty) const Divider(),
-                ],
-                for (final activity in state.activities) ...[
-                  _ClipboardHistoryTile(activity: activity),
-                  if (activity != state.activities.last) const Divider(),
+                for (final entry in state.history) ...[
+                  _ClipboardHistoryTile(entry: entry),
+                  if (entry != state.history.last) const Divider(),
                 ],
               ],
             ),
@@ -1077,13 +1098,13 @@ class _FormGrid extends StatelessWidget {
 }
 
 class _ClipboardHistoryTile extends StatelessWidget {
-  const _ClipboardHistoryTile({required this.activity});
+  const _ClipboardHistoryTile({required this.entry});
 
-  final ClipboardActivity activity;
+  final ClipboardHistoryEntry entry;
 
   @override
   Widget build(BuildContext context) {
-    final tone = switch (activity.kind) {
+    final tone = switch (entry.kind) {
       ActivityKind.published => _Tone.success,
       ActivityKind.applied => _Tone.info,
       ActivityKind.pending => _Tone.warning,
@@ -1093,57 +1114,80 @@ class _ClipboardHistoryTile extends StatelessWidget {
     final colors = _toneColors(tone);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: colors.background,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              _activityIcon(activity.kind),
-              color: colors.foreground,
-              size: 21,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _historyTitle(activity.kind),
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colors.background,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  _activityIcon(entry.kind),
+                  color: colors.foreground,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _historyTitle(entry.kind),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${_formatHistoryTime(entry.timestamp)} · ${entry.deviceLabel} · ${entry.byteSize} B',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                constraints: const BoxConstraints(maxWidth: 120),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  entry.hashPrefix.isEmpty ? '-' : entry.hashPrefix,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  '${_formatHistoryTime(activity.timestamp)} · ${activity.deviceLabel} · ${activity.byteSize} B',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
+          const SizedBox(height: 10),
           Container(
-            constraints: const BoxConstraints(maxWidth: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: AppColors.surfaceMuted,
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
-              activity.hashPrefix.isEmpty ? '-' : activity.hashPrefix,
-              maxLines: 1,
+              entry.text,
+              maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
         ],

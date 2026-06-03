@@ -16,7 +16,8 @@ func TestCommandContractEncodesSetConfig(t *testing.T) {
 		MaxInlineBytes:   65536,
 		AutoWatch:        true,
 		AutoApply:        false,
-		HistoryRetention: "metadata",
+		HistoryRetention: "body",
+		HistoryLimit:     256,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +47,8 @@ func TestCommandContractEncodesSetConfig(t *testing.T) {
 		settings.Topic != "clipboard/shared" ||
 		settings.DeviceID != "device-a" ||
 		settings.DisplayName != "Win Laptop" ||
+		settings.HistoryRetention != "body" ||
+		settings.HistoryLimit != 256 ||
 		!settings.AutoWatch ||
 		settings.AutoApply {
 		t.Fatalf("unexpected settings: %+v", settings)
@@ -54,18 +57,20 @@ func TestCommandContractEncodesSetConfig(t *testing.T) {
 
 func TestStatusEventOmitsClipboardBody(t *testing.T) {
 	data, err := json.Marshal(Status{
-		Connected:      true,
-		LoggedIn:       true,
-		ParentEndpoint: "10.0.0.2:9000",
-		Enabled:        true,
-		Topic:          "clipboard/shared",
-		DeviceID:       "device-a",
-		DisplayName:    "Desktop",
-		DeviceLabel:    "Desktop",
-		LastAction:     "local_published",
-		LastEventID:    "evt-1",
-		LastSize:       42,
-		LastHashPrefix: "abcdef123456",
+		Connected:        true,
+		LoggedIn:         true,
+		ParentEndpoint:   "10.0.0.2:9000",
+		Enabled:          true,
+		Topic:            "clipboard/shared",
+		DeviceID:         "device-a",
+		DisplayName:      "Desktop",
+		DeviceLabel:      "Desktop",
+		LastAction:       "local_published",
+		LastEventID:      "evt-1",
+		LastSize:         42,
+		LastHashPrefix:   "abcdef123456",
+		HistoryRetention: "body",
+		HistoryLimit:     256,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +88,48 @@ func TestStatusEventOmitsClipboardBody(t *testing.T) {
 	}
 	if _, ok := raw["text"]; ok {
 		t.Fatal("status event leaked clipboard text field")
+	}
+	var event EngineEvent
+	if err := json.Unmarshal(encoded, &event); err != nil {
+		t.Fatal(err)
+	}
+	var status map[string]json.RawMessage
+	if err := json.Unmarshal(event.Data, &status); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := status["text"]; ok {
+		t.Fatal("status data leaked clipboard text field")
+	}
+}
+
+func TestActivityEventCanCarryExplicitHistoryText(t *testing.T) {
+	data, err := json.Marshal(Activity{
+		ID:          "evt-1",
+		Kind:        "published",
+		Title:       "local_published",
+		Detail:      "TopicBus",
+		ByteSize:    5,
+		HashPrefix:  "abcdef123456",
+		TimestampMS: 1700000000000,
+		Text:        "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := EncodeEvent(EngineEvent{Name: EventActivityUpdated, Data: data, OK: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event EngineEvent
+	if err := json.Unmarshal(encoded, &event); err != nil {
+		t.Fatal(err)
+	}
+	var activity Activity
+	if err := json.Unmarshal(event.Data, &activity); err != nil {
+		t.Fatal(err)
+	}
+	if activity.Text != "hello" || activity.ByteSize != 5 {
+		t.Fatalf("unexpected activity: %+v", activity)
 	}
 }
 
