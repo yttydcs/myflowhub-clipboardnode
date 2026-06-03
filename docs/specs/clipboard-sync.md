@@ -44,7 +44,8 @@ The default security model is the private MyFlowHub topology plus authenticated 
 - Own TopicBus subscribe, resubscribe, publish, and event receive.
 - Own sync state, enablement, channel, size limit, dedupe windows, status reporting, and transfer manifest handling.
 - Never call platform clipboard APIs directly.
- - Expose UI-safe state without clipboard body leakage.
+- Expose UI-safe status without clipboard body leakage.
+- Emit successful inline text decisions with an in-memory-only text field that the UI bridge may use for explicit local body history.
 
 ### `core/clipboard`
 
@@ -63,7 +64,8 @@ The default security model is the private MyFlowHub topology plus authenticated 
 - Provide desktop/mobile-appropriate send and receive controls.
 - Provide recent transfer status without forced body exposure.
 - Provide validation, transport, and platform permission status.
-- Provide settings for inline size, auto-watch, auto-apply, and local retention.
+- Provide settings for inline size, auto-watch, auto-apply, local retention mode, and body history length.
+- Maintain a body history list separate from activity/log metadata; body history is local in-memory UI state and defaults to the newest 256 text entries.
 
 ### Platform adapters
 
@@ -131,6 +133,7 @@ The default security model is the private MyFlowHub topology plus authenticated 
    - topic: configured topic
    - name: `clipboard.text.v1`
    - payload: event JSON
+8. Runtime emits a successful local-publish decision with metadata and in-memory text for bridge-side body history when enabled.
 
 ### TopicBus To Local Clipboard
 
@@ -139,8 +142,9 @@ The default security model is the private MyFlowHub topology plus authenticated 
 3. Runtime validates payload version, identity fields, and text.
 4. Runtime computes UTF-8 byte size and SHA-256 from the text.
 5. Runtime ignores local-origin or duplicate events.
-6. Runtime writes text through the platform adapter.
-7. Runtime records the write hash/event ID to suppress loops.
+6. Runtime either writes text through the platform adapter or records the event as pending when auto-apply is off.
+7. Runtime records the write hash/event ID to suppress loops after successful local apply.
+8. Runtime emits a pending/applied decision with metadata and in-memory text for bridge-side body history when enabled.
 
 ### Large Content Transfer
 
@@ -199,12 +203,15 @@ type Config struct {
     AutoWatch      bool   `json:"auto_watch"`
     AutoApply      bool   `json:"auto_apply"`
     HistoryRetention string `json:"history_retention"`
+    HistoryLimit   int    `json:"history_limit"`
 }
 ```
 
 Default `ParentEndpoint` should be `127.0.0.1:9000`.
 Default `MaxInlineBytes` should be `65536`.
-Default `Enabled`, `AutoWatch`, `AutoApply`, and persistent body retention should be conservative and off unless the user enables them explicitly.
+Default `Enabled`, `AutoWatch`, and `AutoApply` should be conservative and off.
+Default `HistoryRetention` should be `body`.
+Default `HistoryLimit` should be `256`, and implementations should reject non-positive or unbounded limits.
 
 ### UI-safe Status
 
@@ -218,6 +225,8 @@ type Status struct {
     DeviceLabel string
     AutoWatch bool
     AutoApply bool
+    HistoryRetention string
+    HistoryLimit int
     LastAction string
     LastEventID string
     LastSize int
@@ -227,6 +236,10 @@ type Status struct {
 ```
 
 Status must not include clipboard text.
+
+### UI Activity And Body History
+
+Bridge activity events are metadata records by default. They may include an optional `text` field only when normalized local config has `history_retention=body` and the runtime decision came from a successful inline text publish, pending receive, or apply path. UI code must store that text only in the bounded body history list and must keep activity/log views metadata-only.
 
 ### Transfer Manifest Draft
 
@@ -271,7 +284,8 @@ The manifest is a ClipboardNode application payload. It must not require a Topic
 - Keep dedupe windows bounded by count and age.
 - Do not store unbounded event history.
 - Hash text once per local and remote event path.
-- Avoid logging or retaining full text after publish/apply.
+- Avoid logging full text after publish/apply.
+- Retain body history only in the explicit bounded UI list; trim it to `history_limit` and clear it when retention is changed away from `body`.
 - Unit test:
   - payload validation
   - locally computed text digest

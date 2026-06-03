@@ -132,7 +132,11 @@ func (h *stdioHost) handle(ctx context.Context, cmd bridge.EngineCommand) (bool,
 			h.emitError(cmd.ID, fmt.Errorf("decode settings: %w", err))
 			return false, err
 		}
-		cfg := configFromSettings(settings)
+		cfg, err := coreruntime.NormalizeConfig(configFromSettings(settings))
+		if err != nil {
+			h.emitError(cmd.ID, err)
+			return false, err
+		}
 		if err := h.store.Save(cfg); err != nil {
 			h.emitError(cmd.ID, err)
 			return false, err
@@ -338,6 +342,8 @@ func (h *stdioHost) statusWithError(errMsg string) bridge.Status {
 		DeviceLabel:      cfg.DeviceLabel,
 		AutoWatch:        cfg.AutoWatch,
 		AutoApply:        cfg.AutoApply,
+		HistoryRetention: cfg.HistoryRetention,
+		HistoryLimit:     cfg.HistoryLimit,
 		TransferProvider: cfg.TransferProvider,
 		TransferRef:      cfg.TransferRef,
 		Started:          status.Runtime.Started,
@@ -358,15 +364,8 @@ func (h *stdioHost) emitActivity(id string, decision coreruntime.Decision) {
 	if decision.Action == "" {
 		return
 	}
-	data, _ := json.Marshal(bridge.Activity{
-		ID:          decision.EventID,
-		Kind:        activityKind(decision.Action),
-		Title:       string(decision.Action),
-		Detail:      "TopicBus",
-		ByteSize:    decision.Size,
-		HashPrefix:  decision.HashPrefix,
-		TimestampMS: h.eng.Status().Runtime.LastUpdated.UnixMilli(),
-	})
+	activity := activityFromDecision(decision, h.cfg, h.eng.Status().Runtime.LastUpdated.UnixMilli())
+	data, _ := json.Marshal(activity)
 	h.emit(bridge.EngineEvent{ID: id, Name: bridge.EventActivityUpdated, Data: data, OK: true})
 }
 
@@ -542,9 +541,26 @@ func configFromSettings(settings bridge.Settings) coreruntime.Config {
 		AutoWatch:        settings.AutoWatch,
 		AutoApply:        settings.AutoApply,
 		HistoryRetention: settings.HistoryRetention,
+		HistoryLimit:     settings.HistoryLimit,
 		TransferProvider: settings.TransferProvider,
 		TransferRef:      settings.TransferRef,
 	}
+}
+
+func activityFromDecision(decision coreruntime.Decision, cfg coreruntime.Config, timestampMS int64) bridge.Activity {
+	activity := bridge.Activity{
+		ID:          decision.EventID,
+		Kind:        activityKind(decision.Action),
+		Title:       string(decision.Action),
+		Detail:      "TopicBus",
+		ByteSize:    decision.Size,
+		HashPrefix:  decision.HashPrefix,
+		TimestampMS: timestampMS,
+	}
+	if cfg.HistoryRetention == coreruntime.HistoryRetentionBody {
+		activity.Text = decision.Text
+	}
+	return activity
 }
 
 func activityKind(action coreruntime.Action) string {

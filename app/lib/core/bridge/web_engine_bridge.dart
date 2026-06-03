@@ -92,8 +92,15 @@ class WebEngineBridge implements ClipboardEngineBridge {
     if (settings.maxInlineBytes <= 0) {
       throw StateError('内联文本上限必须大于 0');
     }
+    validateHistoryLimit(settings.historyLimit);
     final next = settings.copyWith(parentEndpoint: endpoint, topic: topic);
-    _emit(_state.copyWith(settings: next, hubEndpoint: endpoint));
+    _emit(
+      _state.copyWith(
+        settings: next,
+        hubEndpoint: endpoint,
+        history: trimClipboardHistory(_state.history, next),
+      ),
+    );
     if (_events != null) {
       await _send(EngineActions.setConfig, next.toJson());
     }
@@ -125,6 +132,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
     _emit(
       _state.copyWith(
         activities: const [],
+        history: const [],
         clearPendingEvent: true,
         clearTransferStatus: true,
       ),
@@ -268,7 +276,9 @@ class WebEngineBridge implements ClipboardEngineBridge {
       case EngineEvents.statusChanged:
         _applyStatus(data);
       case EngineEvents.activityUpdated:
-        _applyActivity(data);
+        if (data.isNotEmpty) {
+          _applyActivity(data);
+        }
       case EngineEvents.transferUpdated:
         _applyTransfer(data);
       case EngineEvents.error:
@@ -287,6 +297,14 @@ class WebEngineBridge implements ClipboardEngineBridge {
           data['device_label'] as String? ?? _state.settings.deviceLabel,
       autoWatch: data['auto_watch'] as bool? ?? _state.settings.autoWatch,
       autoApply: data['auto_apply'] as bool? ?? _state.settings.autoApply,
+      historyRetention: parseHistoryRetention(
+        data['history_retention'],
+        _state.settings.historyRetention,
+      ),
+      historyLimit: parseHistoryLimit(
+        data['history_limit'],
+        _state.settings.historyLimit,
+      ),
       transferProvider:
           data['transfer_provider'] as String? ??
           _state.settings.transferProvider,
@@ -312,6 +330,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
         authStage: loggedIn ? '已认证' : '等待认证',
         nodeId: (data['node_id'] as num?)?.toInt(),
         settings: settings,
+        history: trimClipboardHistory(_state.history, settings),
         pendingEvent: pending,
         clearPendingEvent: pending == null,
         lastError: data['last_error'] as String? ?? '',
@@ -327,6 +346,10 @@ class WebEngineBridge implements ClipboardEngineBridge {
       'error' => ActivityKind.error,
       _ => ActivityKind.ignored,
     };
+    final timestampMS = (data['timestamp_ms'] as num?)?.toInt();
+    final timestamp = timestampMS == null || timestampMS <= 0
+        ? DateTime.now()
+        : DateTime.fromMillisecondsSinceEpoch(timestampMS);
     final activity = ClipboardActivity(
       id:
           data['id'] as String? ??
@@ -338,14 +361,16 @@ class WebEngineBridge implements ClipboardEngineBridge {
           data['device_label'] as String? ?? _state.settings.deviceLabel,
       byteSize: (data['byte_size'] as num?)?.toInt() ?? 0,
       hashPrefix: data['hash_prefix'] as String? ?? '',
-      timestamp: DateTime.now(),
+      timestamp: timestamp,
     );
+    final text = data['text'] as String? ?? '';
     _emit(
       _state.copyWith(
         activities: [
           activity,
           ..._state.activities,
         ].take(20).toList(growable: false),
+        history: appendClipboardHistory(_state, activity, text),
       ),
     );
   }

@@ -4,6 +4,7 @@ Completed workflow archives for ClipboardNode.
 
 ## Current
 
+- [2026-06-04_clipboard-body-history.md](2026-06-04_clipboard-body-history.md)
 - [2026-06-03_compact-clipboard-text-payload.md](2026-06-03_compact-clipboard-text-payload.md)
 - [2026-06-02_windows-unsigned-release-preview.md](2026-06-02_windows-unsigned-release-preview.md)
 - [2026-06-02_conditional-release-builds.md](2026-06-02_conditional-release-builds.md)

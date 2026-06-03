@@ -29,7 +29,8 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 - Apply a valid remote clipboard event to the local system clipboard.
 - Prevent local publish and remote apply loops.
 - Enforce a configurable inline text size limit.
-- Keep clipboard text out of logs, status history, and persistent configuration.
+- Keep clipboard text out of diagnostic logs, status, transfer records, and persistent configuration.
+- Provide a local in-memory clipboard body history that defaults to retaining the newest 256 text entries and can be configured or disabled by the user.
 - Surface sync status, validation failures, and transport errors without silently swallowing them.
 - Provide device/channel status, recent transfer status, settings, manual send, receive/apply controls, and clear privacy controls in the UI.
 - Respect platform limitations: desktop can support automatic clipboard watching; mobile must support manual send/share-sheet flows and cannot rely on unrestricted background clipboard watching.
@@ -51,7 +52,7 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 - Offline queueing, replay, or history recovery.
 - End-to-end delivery acknowledgement beyond TopicBus subscribe control responses.
 - Modifying TopicBus permission semantics.
-- Persisting full clipboard history without explicit local user enablement and local retention controls.
+- Persisting full clipboard history to disk.
 
 ## Use Cases
 
@@ -82,8 +83,12 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 14. ClipboardNode must unsubscribe or stop applying remote events when disabled.
 15. ClipboardNode must clear in-memory login state, node identity, subscriptions, and watchers when the user disconnects or the app shuts down.
 16. ClipboardNode must expose enough state for UI or CLI diagnostics without revealing clipboard text.
-17. ClipboardNode must distinguish automatic desktop sync from mobile manual/share flows.
-18. ClipboardNode must support at least these UI surfaces:
+17. ClipboardNode must maintain a separate local in-memory body history for text clipboard entries when `history_retention=body`.
+18. ClipboardNode must default `history_retention` to `body` and `history_limit` to `256`.
+19. ClipboardNode must allow `history_retention=metadata` for metadata-only activity and `history_retention=none` for no local history retention.
+20. ClipboardNode must validate `history_limit` as a positive bounded value and trim in-memory body history to that limit.
+21. ClipboardNode must distinguish automatic desktop sync from mobile manual/share flows.
+22. ClipboardNode must support at least these UI surfaces:
     - connection and login status;
     - parent Hub / endpoint configuration;
     - device identity and channel selection;
@@ -93,13 +98,13 @@ Security is based on the private MyFlowHub network, authenticated node identity,
     - manual send current clipboard;
     - recent transfer status without forced body exposure;
     - error and validation status.
-19. ClipboardNode must not treat publish success as remote apply success.
-20. ClipboardNode must not create new MyFlowHub protocol actions or rely on server-side ClipboardNode-specific behavior.
+23. ClipboardNode must not treat publish success as remote apply success.
+24. ClipboardNode must not create new MyFlowHub protocol actions or rely on server-side ClipboardNode-specific behavior.
 
 ## Non-functional Requirements
 
 - Safety: default disabled, explicit enablement, bounded payload size, no plaintext logs, no implicit mobile background clipboard access.
-- Privacy: clipboard text must be transient in memory unless the user explicitly enables local bounded retention.
+- Privacy: clipboard text may appear in the explicit local in-memory body history, bounded by `history_limit`; it must not be logged, written to status, or persisted to disk.
 - Security model: private MyFlowHub topology plus authenticated node identity; no pairing or room key required by default.
 - Reliability: reject invalid state explicitly and report errors.
 - Performance: avoid repeated full-text processing; compute hash once per event path.
@@ -122,6 +127,7 @@ Security is based on the private MyFlowHub network, authenticated node identity,
   - `auto_watch`
   - `auto_apply`
   - `history_retention`
+  - `history_limit`
   - connection/auth defaults
 
 ### Outputs
@@ -129,7 +135,8 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 - TopicBus publish event for accepted local clipboard changes.
 - Local clipboard write for accepted remote events.
 - Existing transfer protocol request or reference for large supported content.
-- Runtime status and error records.
+- Runtime status and error records without clipboard body text.
+- Local in-memory clipboard body history entries when body history retention is enabled.
 - Logs without clipboard body content.
 
 ## Topic Event Payload
@@ -175,6 +182,7 @@ Future large-content announcements should use a distinct ClipboardNode event nam
 8. Requirements state that existing MyFlowHub protocols must be reused without modification.
 9. Requirements state that private topology and node identity are the default security model, without pairing or room keys.
 10. Requirements state that mobile clipboard limitations require manual/share flows.
+11. Requirements state that local body history defaults to 256 in-memory text entries and is configurable through `history_limit`.
 
 ## Risks
 

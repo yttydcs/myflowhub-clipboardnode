@@ -57,7 +57,12 @@ class MobileEngineBridge implements ClipboardEngineBridge {
   Future<void> updateSettings(ClipboardSettings settings) async {
     await _fallback.updateSettings(settings);
     final normalized = _fallback.currentState.settings;
-    _emit(_state.copyWith(settings: normalized));
+    _emit(
+      _state.copyWith(
+        settings: normalized,
+        history: trimClipboardHistory(_state.history, normalized),
+      ),
+    );
     if (!_state.connected && !_state.loggedIn) {
       return;
     }
@@ -78,7 +83,7 @@ class MobileEngineBridge implements ClipboardEngineBridge {
       final raw = await _channel.invokeMethod<String>('sendText', {
         'text': text,
       });
-      _applyDecision(raw);
+      _applyDecision(raw, fallbackText: text);
     } on MissingPluginException {
       await _fallback.sendText(text);
       _emit(_fallback.currentState.copyWith(previewMode: true));
@@ -114,6 +119,7 @@ class MobileEngineBridge implements ClipboardEngineBridge {
     _emit(
       _state.copyWith(
         activities: const [],
+        history: const [],
         clearPendingEvent: true,
         clearTransferStatus: true,
       ),
@@ -143,6 +149,20 @@ class MobileEngineBridge implements ClipboardEngineBridge {
         : <String, Object?>{};
     final nodeId = decoded['NodeID'] as int?;
     final endpoint = decoded['ParentEndpoint'] as String?;
+    final settings = _state.settings.copyWith(
+      enabled: runtimeData['Enabled'] as bool? ?? _state.settings.enabled,
+      topic: runtimeData['Topic'] as String? ?? _state.settings.topic,
+      autoWatch: runtimeData['AutoWatch'] as bool? ?? _state.settings.autoWatch,
+      autoApply: runtimeData['AutoApply'] as bool? ?? _state.settings.autoApply,
+      historyRetention: parseHistoryRetention(
+        runtimeData['HistoryRetention'],
+        _state.settings.historyRetention,
+      ),
+      historyLimit: parseHistoryLimit(
+        runtimeData['HistoryLimit'],
+        _state.settings.historyLimit,
+      ),
+    );
     _emit(
       _state.copyWith(
         connected: connected,
@@ -151,14 +171,8 @@ class MobileEngineBridge implements ClipboardEngineBridge {
         hubEndpoint: endpoint ?? _state.hubEndpoint,
         authStage: loggedIn ? '已认证' : '等待认证',
         nodeId: nodeId,
-        settings: _state.settings.copyWith(
-          enabled: runtimeData['Enabled'] as bool? ?? _state.settings.enabled,
-          topic: runtimeData['Topic'] as String? ?? _state.settings.topic,
-          autoWatch:
-              runtimeData['AutoWatch'] as bool? ?? _state.settings.autoWatch,
-          autoApply:
-              runtimeData['AutoApply'] as bool? ?? _state.settings.autoApply,
-        ),
+        settings: settings,
+        history: trimClipboardHistory(_state.history, settings),
         lastError:
             decoded['last_error'] as String? ??
             decoded['LastError'] as String? ??
@@ -167,7 +181,7 @@ class MobileEngineBridge implements ClipboardEngineBridge {
     );
   }
 
-  void _applyDecision(String? raw) {
+  void _applyDecision(String? raw, {String fallbackText = ''}) {
     if (raw == null || raw.trim().isEmpty) {
       return;
     }
@@ -199,12 +213,14 @@ class MobileEngineBridge implements ClipboardEngineBridge {
       hashPrefix: decoded['HashPrefix'] as String? ?? '',
       timestamp: now,
     );
+    final text = decoded['Text'] as String? ?? fallbackText;
     _emit(
       _state.copyWith(
         activities: [
           activity,
           ..._state.activities,
         ].take(20).toList(growable: false),
+        history: appendClipboardHistory(_state, activity, text),
       ),
     );
   }

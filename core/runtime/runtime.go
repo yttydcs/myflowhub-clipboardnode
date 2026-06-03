@@ -61,6 +61,7 @@ type Decision struct {
 	EventID    string
 	Size       int
 	HashPrefix string
+	Text       string `json:"-"`
 }
 
 type Status struct {
@@ -528,7 +529,7 @@ func (r *Runtime) HandleLocalText(ctx context.Context, evt clipboard.TextEvent) 
 		return Decision{Action: ActionTransportFailed, EventID: out.EventID, Size: digest.Size, HashPrefix: hashPrefix}, fmt.Errorf("publish clipboard event: %w", err)
 	}
 
-	decision := Decision{Action: ActionLocalPublished, EventID: out.EventID, Size: digest.Size, HashPrefix: hashPrefix}
+	decision := Decision{Action: ActionLocalPublished, EventID: out.EventID, Size: digest.Size, HashPrefix: hashPrefix, Text: evt.Text}
 	r.mu.Lock()
 	r.lastLocalHash = digest.SHA256
 	r.recentEvents.Add(out.EventID)
@@ -561,7 +562,7 @@ func (r *Runtime) ApplyPending(ctx context.Context, eventID string) (Decision, e
 		return Decision{Action: ActionClipboardWriteFailed, EventID: pending.event.EventID, Size: pending.event.Size, HashPrefix: pending.hashPrefix}, fmt.Errorf("write clipboard text: %w", err)
 	}
 
-	decision := Decision{Action: ActionRemoteApplied, EventID: pending.event.EventID, Size: pending.event.Size, HashPrefix: pending.hashPrefix}
+	decision := Decision{Action: ActionRemoteApplied, EventID: pending.event.EventID, Size: pending.event.Size, HashPrefix: pending.hashPrefix, Text: pending.event.Text}
 	r.mu.Lock()
 	r.deletePendingLocked(eventID)
 	r.recentEvents.Add(pending.event.EventID)
@@ -644,7 +645,7 @@ func (r *Runtime) HandleTopicBusMessage(ctx context.Context, msg TopicBusMessage
 		return decision, nil
 	}
 	if !autoApply {
-		decision := Decision{Action: ActionRemotePending, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}
+		decision := Decision{Action: ActionRemotePending, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix, Text: in.Text}
 		r.addPendingLocked(pendingClipboardText{event: in, hashPrefix: hashPrefix, receivedAt: r.now()})
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
@@ -662,7 +663,7 @@ func (r *Runtime) HandleTopicBusMessage(ctx context.Context, msg TopicBusMessage
 		return Decision{Action: ActionClipboardWriteFailed, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}, fmt.Errorf("write clipboard text: %w", err)
 	}
 
-	decision := Decision{Action: ActionRemoteApplied, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}
+	decision := Decision{Action: ActionRemoteApplied, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix, Text: in.Text}
 	r.mu.Lock()
 	r.recentEvents.Add(in.EventID)
 	r.suppressHashes.Add(in.SHA256)

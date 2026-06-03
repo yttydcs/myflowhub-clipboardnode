@@ -160,6 +160,57 @@ Using `$m-docs`: this workflow changes stable payload truth, so:
 阻塞：否
 进入 3.2
 
+## Stage 3.2 - Implementation
+
+### File-level Change Summary
+
+- `core/runtime/config.go`: added body history retention mode, `history_limit`, defaults `body/256`, and positive/bounded validation.
+- `core/runtime/runtime.go`: added in-memory-only `Decision.Text` for successful inline local publish, remote pending, remote auto-apply, and pending apply paths.
+- `bridge/contract.go`: added `history_limit` to settings/status and optional activity `text`.
+- `cmd/clipboardnode-bridge/main.go`: normalized settings before save/update, surfaced history settings in status, and gated activity text emission by `history_retention=body`.
+- `app/lib/core/bridge/*.dart`: added `ClipboardHistoryEntry`, separate `state.history`, history limit parsing/validation/trimming, and body-history append behavior for preview/live/web/mobile paths.
+- `app/lib/features/shell/clipboard_shell.dart`: changed History to render body entries, added retention mode and history length settings, and kept Log metadata-only.
+- `docs/requirements/clipboard-sync.md` and `docs/specs/clipboard-sync.md`: updated stable requirements/specs for default local body history and privacy boundaries.
+- Tests updated in Go bridge/runtime and Flutter widget coverage.
+
+### Task Mapping
+
+- `T1`: completed runtime config/default/validation and decision text propagation.
+- `T2`: completed bridge contract, status/settings mapping, and body-text privacy gating.
+- `T3`: completed Flutter state model, bridges, settings controls, history UI, and tests.
+- `T4`: completed stable docs updates and validation; change archive created in Stage 4.
+
+### Validation
+
+- `$env:GOWORK='off'; go test ./core/runtime ./bridge ./cmd/clipboardnode-bridge -count=1`: passed.
+- `$env:GOWORK='off'; go test ./... -count=1`: passed.
+- `flutter pub get`: passed.
+- `flutter analyze`: passed.
+- `flutter test`: passed.
+- `flutter build windows --debug`: passed.
+- `git diff --check`: passed.
+- Local desktop preview launched from worktree debug build: `ClipboardNode.exe` PID `60220`.
+
+## Stage 3.3 - Code Review
+
+- 需求覆盖：通过。正文历史、默认 256、可配置长度、metadata/none 模式、清空历史、日志 metadata-only 均覆盖。
+- 架构合理性：通过。运行时只产出内存决策正文；桥接层按 retention 过滤；UI 单独维护 body history，不污染 status/log/transfer。
+- 性能风险（N+1 / 重复计算 / 多余 I/O / 锁竞争）：通过。历史追加按 bounded list 截断，没有新增持久化 I/O 或 unbounded growth。
+- 可读性与一致性：通过。新增常量、字段名和 JSON key 与现有 config/settings 风格一致。
+- 可扩展性与配置化：通过。retention mode 和 history limit 可扩展，后续持久化历史可独立挂载，不改 TopicBus 协议。
+- 稳定性与安全：通过。`Decision.Text` 默认 JSON 省略；status/transfer contract tests 保持正文不泄露；activity text 只在 body 模式下发送。
+- 测试覆盖情况：通过。Go runtime/config/bridge tests、Flutter bridge state/widget tests、analyze/build 均通过。
+- 子Agent治理与审计：通过。未派发子Agent；原因是 T1-T3 共享同一隐私合同，拆分会提高集成风险。
+
+## Stage 4 - Change Archive
+
+Using `$m-docs`: archived the completed workflow in [docs/change/2026-06-04_clipboard-body-history.md](docs/change/2026-06-04_clipboard-body-history.md) and indexed it in [docs/change/README.md](docs/change/README.md).
+
+- Requirements impact: updated
+- Specs impact: updated
+- Lessons impact: none
+- Workflow end: awaiting user confirmation before merge/worktree cleanup.
+
 ## Tasks
 
 ### T1 - Runtime compact payload

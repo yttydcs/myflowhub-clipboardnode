@@ -136,6 +136,9 @@ func TestRuntimeHandleLocalTextPublishesValidEvent(t *testing.T) {
 	if decision.Action != ActionLocalPublished {
 		t.Fatalf("action = %s", decision.Action)
 	}
+	if decision.Text != "hello" {
+		t.Fatalf("decision text = %q", decision.Text)
+	}
 	if bus.publishCount() != 1 {
 		t.Fatalf("publish count = %d", bus.publishCount())
 	}
@@ -212,6 +215,9 @@ func TestRuntimeRemoteApplyDuplicateAndLoopSuppression(t *testing.T) {
 	if decision.Action != ActionRemoteApplied {
 		t.Fatalf("action = %s", decision.Action)
 	}
+	if decision.Text != "remote text" {
+		t.Fatalf("decision text = %q", decision.Text)
+	}
 	if len(clip.writes) != 1 || clip.writes[0] != "remote text" {
 		t.Fatalf("writes = %v", clip.writes)
 	}
@@ -223,6 +229,9 @@ func TestRuntimeRemoteApplyDuplicateAndLoopSuppression(t *testing.T) {
 	if decision.Action != ActionIgnoredDuplicate {
 		t.Fatalf("duplicate action = %s", decision.Action)
 	}
+	if decision.Text != "" {
+		t.Fatalf("duplicate decision leaked text = %q", decision.Text)
+	}
 
 	decision, err = rt.HandleLocalText(context.Background(), clipboard.TextEvent{Text: "remote text"})
 	if err != nil {
@@ -230,6 +239,9 @@ func TestRuntimeRemoteApplyDuplicateAndLoopSuppression(t *testing.T) {
 	}
 	if decision.Action != ActionIgnoredLoop {
 		t.Fatalf("loop action = %s", decision.Action)
+	}
+	if decision.Text != "" {
+		t.Fatalf("loop decision leaked text = %q", decision.Text)
 	}
 	if bus.publishCount() != 0 {
 		t.Fatalf("publish count = %d", bus.publishCount())
@@ -371,6 +383,9 @@ func TestRuntimeRemoteEventPendingWhenAutoApplyDisabled(t *testing.T) {
 	if decision.Action != ActionRemotePending {
 		t.Fatalf("action = %s", decision.Action)
 	}
+	if decision.Text != "remote text" {
+		t.Fatalf("pending decision text = %q", decision.Text)
+	}
 	if len(clip.writes) != 0 {
 		t.Fatalf("writes = %v", clip.writes)
 	}
@@ -384,6 +399,9 @@ func TestRuntimeRemoteEventPendingWhenAutoApplyDisabled(t *testing.T) {
 	}
 	if decision.Action != ActionRemoteApplied {
 		t.Fatalf("apply action = %s", decision.Action)
+	}
+	if decision.Text != "remote text" {
+		t.Fatalf("apply decision text = %q", decision.Text)
 	}
 	if len(clip.writes) != 1 || clip.writes[0] != "remote text" {
 		t.Fatalf("writes after apply = %v", clip.writes)
@@ -439,6 +457,9 @@ func TestRuntimeOversizeWithoutTransferIsExplicit(t *testing.T) {
 	if decision.Action != ActionTransferUnsupported {
 		t.Fatalf("action = %s", decision.Action)
 	}
+	if decision.Text != "" {
+		t.Fatalf("transfer unsupported leaked text = %q", decision.Text)
+	}
 	if bus.publishCount() != 0 {
 		t.Fatalf("publish count = %d", bus.publishCount())
 	}
@@ -473,6 +494,9 @@ func TestRuntimeOversizeWithTransferPublishesManifestOnly(t *testing.T) {
 	}
 	if decision.Action != ActionTransferPublished {
 		t.Fatalf("action = %s", decision.Action)
+	}
+	if decision.Text != "" {
+		t.Fatalf("transfer published leaked text = %q", decision.Text)
 	}
 	if bus.publishCount() != 1 {
 		t.Fatalf("publish count = %d", bus.publishCount())
