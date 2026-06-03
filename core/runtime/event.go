@@ -21,17 +21,14 @@ const (
 )
 
 type ClipboardTextEventV1 struct {
-	Version          int    `json:"version"`
-	EventID          string `json:"event_id"`
-	OriginNode       uint32 `json:"origin_node"`
-	OriginInstanceID string `json:"origin_instance_id"`
-	OriginDevice     string `json:"origin_device,omitempty"`
-	ContentType      string `json:"content_type"`
-	Encoding         string `json:"encoding"`
-	Size             int    `json:"size"`
-	SHA256           string `json:"sha256"`
+	Version          int    `json:"v"`
+	EventID          string `json:"id"`
+	OriginNode       uint32 `json:"from"`
+	OriginInstanceID string `json:"instance"`
+	OriginDevice     string `json:"device,omitempty"`
 	Text             string `json:"text"`
-	TS               int64  `json:"ts"`
+	Size             int    `json:"-"`
+	SHA256           string `json:"-"`
 }
 
 type TransferReference struct {
@@ -124,10 +121,6 @@ func newClipboardTextEventV1WithDigest(text string, digest TextDigest, opts Buil
 	if opts.OriginInstanceID == "" {
 		return ClipboardTextEventV1{}, fmt.Errorf("origin_instance_id is required")
 	}
-	now := opts.Now
-	if now == nil {
-		now = time.Now
-	}
 	newEventID := opts.NewEventID
 	if newEventID == nil {
 		newEventID = RandomEventID
@@ -142,58 +135,51 @@ func newClipboardTextEventV1WithDigest(text string, digest TextDigest, opts Buil
 		OriginNode:       opts.OriginNode,
 		OriginInstanceID: opts.OriginInstanceID,
 		OriginDevice:     strings.TrimSpace(opts.OriginDevice),
-		ContentType:      ContentTypeTextPlain,
-		Encoding:         EncodingUTF8,
 		Size:             digest.Size,
 		SHA256:           digest.SHA256,
 		Text:             text,
-		TS:               now().UnixMilli(),
 	}
-	if err := evt.Validate(opts.MaxInlineBytes); err != nil {
+	evt, err = normalizeClipboardTextEventV1(evt, opts.MaxInlineBytes)
+	if err != nil {
 		return ClipboardTextEventV1{}, err
 	}
 	return evt, nil
 }
 
 func (e ClipboardTextEventV1) Validate(maxInlineBytes int) error {
+	_, err := normalizeClipboardTextEventV1(e, maxInlineBytes)
+	return err
+}
+
+func normalizeClipboardTextEventV1(e ClipboardTextEventV1, maxInlineBytes int) (ClipboardTextEventV1, error) {
 	if maxInlineBytes <= 0 {
-		return fmt.Errorf("max_inline_bytes must be positive")
+		return ClipboardTextEventV1{}, fmt.Errorf("max_inline_bytes must be positive")
 	}
 	if e.Version != EventVersionV1 {
-		return fmt.Errorf("unsupported clipboard event version %d", e.Version)
+		return ClipboardTextEventV1{}, fmt.Errorf("unsupported clipboard event version %d", e.Version)
 	}
-	if strings.TrimSpace(e.EventID) == "" {
-		return fmt.Errorf("event_id is required")
+	e.EventID = strings.TrimSpace(e.EventID)
+	if e.EventID == "" {
+		return ClipboardTextEventV1{}, fmt.Errorf("event_id is required")
 	}
 	if len(e.EventID) > 128 {
-		return fmt.Errorf("event_id is too long")
+		return ClipboardTextEventV1{}, fmt.Errorf("event_id is too long")
 	}
 	if e.OriginNode == 0 {
-		return fmt.Errorf("origin_node is required")
+		return ClipboardTextEventV1{}, fmt.Errorf("origin_node is required")
 	}
-	if strings.TrimSpace(e.OriginInstanceID) == "" {
-		return fmt.Errorf("origin_instance_id is required")
+	e.OriginInstanceID = strings.TrimSpace(e.OriginInstanceID)
+	if e.OriginInstanceID == "" {
+		return ClipboardTextEventV1{}, fmt.Errorf("origin_instance_id is required")
 	}
-	if e.ContentType != ContentTypeTextPlain {
-		return fmt.Errorf("unsupported content_type %q", e.ContentType)
-	}
-	if !strings.EqualFold(e.Encoding, EncodingUTF8) {
-		return fmt.Errorf("unsupported encoding %q", e.Encoding)
-	}
+	e.OriginDevice = strings.TrimSpace(e.OriginDevice)
 	digest, err := InspectText(e.Text, maxInlineBytes)
 	if err != nil {
-		return err
+		return ClipboardTextEventV1{}, err
 	}
-	if e.Size != digest.Size {
-		return fmt.Errorf("size mismatch: got %d want %d", e.Size, digest.Size)
-	}
-	if e.SHA256 != digest.SHA256 {
-		return fmt.Errorf("sha256 mismatch")
-	}
-	if e.TS <= 0 {
-		return fmt.Errorf("ts is required")
-	}
-	return nil
+	e.Size = digest.Size
+	e.SHA256 = digest.SHA256
+	return e, nil
 }
 
 func (e ClipboardTextEventV1) IsLocalOrigin(nodeID uint32, instanceID string) bool {
@@ -207,7 +193,8 @@ func (e ClipboardTextEventV1) IsLocalOrigin(nodeID uint32, instanceID string) bo
 }
 
 func MarshalClipboardTextEventV1(evt ClipboardTextEventV1, maxInlineBytes int) ([]byte, error) {
-	if err := evt.Validate(maxInlineBytes); err != nil {
+	evt, err := normalizeClipboardTextEventV1(evt, maxInlineBytes)
+	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(evt)
@@ -224,7 +211,8 @@ func ParseClipboardTextEventV1(payload []byte, maxInlineBytes int) (ClipboardTex
 	if err := json.Unmarshal(payload, &evt); err != nil {
 		return ClipboardTextEventV1{}, fmt.Errorf("decode clipboard event: %w", err)
 	}
-	if err := evt.Validate(maxInlineBytes); err != nil {
+	evt, err := normalizeClipboardTextEventV1(evt, maxInlineBytes)
+	if err != nil {
 		return ClipboardTextEventV1{}, err
 	}
 	return evt, nil

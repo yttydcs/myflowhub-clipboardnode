@@ -9,8 +9,8 @@ Small text synchronization uses TopicBus as an application event channel:
 1. The node connects to the configured parent Hub / endpoint, then performs registration/login in the background through the existing MyFlowHub auth flow.
 2. When enabled, it subscribes to a configured clipboard topic/channel.
 3. A platform clipboard watcher reports local text changes to the shared runtime.
-4. The shared runtime validates, hashes, deduplicates, and publishes a `clipboard.text.v1` event.
-5. The runtime receives remote TopicBus events, validates them, deduplicates them, and asks the platform adapter to write the text clipboard.
+4. The shared runtime validates, hashes, deduplicates, and publishes a compact `clipboard.text.v1` event.
+5. The runtime receives remote compact TopicBus events, validates them, computes derived metadata, deduplicates them, and asks the platform adapter to write the text clipboard.
 
 TopicBus is selected for small inline text because clipboard text sync is event-shaped, low-frequency, and does not need per-delivery ACK for the default private-network use case. Existing Stream or File capabilities remain the transfer path for large, binary, resumable, or file content. ClipboardNode must not add or modify MyFlowHub subprotocol wire contracts.
 
@@ -126,7 +126,7 @@ The default security model is the private MyFlowHub topology plus authenticated 
 3. Runtime normalizes text, computes UTF-8 byte length, and rejects empty or oversize input.
 4. Runtime computes SHA-256.
 5. Runtime ignores unchanged text using last local/remote hash state.
-6. Runtime builds `ClipboardTextEventV1`.
+6. Runtime builds compact `ClipboardTextEventV1`.
 7. Runtime publishes TopicBus application event:
    - topic: configured topic
    - name: `clipboard.text.v1`
@@ -136,10 +136,11 @@ The default security model is the private MyFlowHub topology plus authenticated 
 
 1. Runtime receives TopicBus publish.
 2. Runtime checks topic and event name.
-3. Runtime validates payload version, content type, encoding, size, hash, and text.
-4. Runtime ignores local-origin or duplicate events.
-5. Runtime writes text through the platform adapter.
-6. Runtime records the write hash/event ID to suppress loops.
+3. Runtime validates payload version, identity fields, and text.
+4. Runtime computes UTF-8 byte size and SHA-256 from the text.
+5. Runtime ignores local-origin or duplicate events.
+6. Runtime writes text through the platform adapter.
+7. Runtime records the write hash/event ID to suppress loops.
 
 ### Large Content Transfer
 
@@ -172,19 +173,19 @@ type Adapter interface {
 
 ```go
 type ClipboardTextEventV1 struct {
-    Version          int    `json:"version"`
-    EventID          string `json:"event_id"`
-    OriginNode       uint32 `json:"origin_node"`
-    OriginInstanceID string `json:"origin_instance_id"`
-    OriginDevice     string `json:"origin_device,omitempty"`
-    ContentType      string `json:"content_type"`
-    Encoding         string `json:"encoding"`
-    Size             int    `json:"size"`
-    SHA256           string `json:"sha256"`
+    Version          int    `json:"v"`
+    EventID          string `json:"id"`
+    OriginNode       uint32 `json:"from"`
+    OriginInstanceID string `json:"instance"`
+    OriginDevice     string `json:"device,omitempty"`
     Text             string `json:"text"`
-    TS               int64  `json:"ts"`
+    Size             int    `json:"-"`
+    SHA256           string `json:"-"`
 }
 ```
+
+`Size` and `SHA256` are runtime-derived fields computed from `Text` after parse
+or before publish; they are not serialized in the `clipboard.text.v1` payload.
 
 ### Runtime Config
 
@@ -258,7 +259,7 @@ The manifest is a ClipboardNode application payload. It must not require a Topic
 - TopicBus subscribe failure: keep disabled subscription state and retry on reconnect or explicit enable.
 - Invalid remote JSON: drop and record validation error without retry.
 - Oversize local text: reject and report oversize status without publishing body.
-- Hash mismatch: reject remote event and record validation error.
+- Text digest: compute UTF-8 byte length and SHA-256 locally; reject invalid or oversize text and record validation error.
 - Clipboard adapter failure: report error and do not mark the event as applied.
 - Runtime shutdown: cancel watcher, unsubscribe best-effort, and close platform adapter.
 - Mobile background clipboard access unavailable: present manual/share actions rather than reporting a fatal app error.
@@ -273,7 +274,7 @@ The manifest is a ClipboardNode application payload. It must not require a Topic
 - Avoid logging or retaining full text after publish/apply.
 - Unit test:
   - payload validation
-  - hash mismatch rejection
+  - locally computed text digest
   - local-origin rejection
   - duplicate event rejection
   - oversize rejection
@@ -285,7 +286,7 @@ The manifest is a ClipboardNode application payload. It must not require a Topic
 
 ## Extensibility Design Points
 
-- Keep `version=1` payload so future payloads can add large-content references.
+- Keep compact `v=1` payload so future payloads can add application-level fields without requiring TopicBus wire changes.
 - Add distinct `clipboard.transfer.v1` manifests for Stream/File handoff without changing TopicBus semantics.
 - Keep Android adapter isolated from Windows adapter.
 - Keep TopicBus client behind an interface so tests do not need a live hub.

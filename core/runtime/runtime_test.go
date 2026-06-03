@@ -2,9 +2,9 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -143,12 +143,21 @@ func TestRuntimeHandleLocalTextPublishesValidEvent(t *testing.T) {
 	if got.Topic != "clipboard/dev" || got.Name != ClipboardTextEventName {
 		t.Fatalf("unexpected topicbus message: %+v", got)
 	}
-	var evt ClipboardTextEventV1
-	if err := json.Unmarshal(got.Payload, &evt); err != nil {
+	if strings.Contains(string(got.Payload), "sha256") ||
+		strings.Contains(string(got.Payload), "size") ||
+		strings.Contains(string(got.Payload), "content_type") ||
+		strings.Contains(string(got.Payload), "encoding") {
+		t.Fatalf("published text payload is not compact: %s", string(got.Payload))
+	}
+	evt, err := ParseClipboardTextEventV1(got.Payload, 64)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if evt.Text != "hello" {
 		t.Fatalf("event text = %q", evt.Text)
+	}
+	if evt.Size != len("hello") || evt.SHA256 != HashText("hello") {
+		t.Fatalf("derived digest = size %d hash %q", evt.Size, evt.SHA256)
 	}
 }
 
@@ -236,12 +245,7 @@ func TestRuntimeIgnoresLocalOriginEvent(t *testing.T) {
 		EventID:          "evt-local",
 		OriginNode:       12,
 		OriginInstanceID: "instance-a",
-		ContentType:      ContentTypeTextPlain,
-		Encoding:         EncodingUTF8,
-		Size:             len("hello"),
-		SHA256:           HashText("hello"),
 		Text:             "hello",
-		TS:               time.Unix(1, 0).UnixMilli(),
 	}, 64)
 	if err != nil {
 		t.Fatal(err)

@@ -1,10 +1,8 @@
 package runtime
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestNewClipboardTextEventV1_ValidatesAndHashes(t *testing.T) {
@@ -13,7 +11,6 @@ func TestNewClipboardTextEventV1_ValidatesAndHashes(t *testing.T) {
 		OriginInstanceID: "instance-a",
 		OriginDevice:     "win-laptop",
 		MaxInlineBytes:   64,
-		Now:              func() time.Time { return time.UnixMilli(1760000000000) },
 		NewEventID:       func() (string, error) { return "evt-1", nil },
 	})
 	if err != nil {
@@ -31,8 +28,16 @@ func TestNewClipboardTextEventV1_ValidatesAndHashes(t *testing.T) {
 	if evt.SHA256 != HashText("hello") {
 		t.Fatalf("sha256 = %q", evt.SHA256)
 	}
-	if evt.TS != 1760000000000 {
-		t.Fatalf("ts = %d", evt.TS)
+	raw, err := MarshalClipboardTextEventV1(evt, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "sha256") ||
+		strings.Contains(string(raw), "size") ||
+		strings.Contains(string(raw), "content_type") ||
+		strings.Contains(string(raw), "encoding") ||
+		strings.Contains(string(raw), "ts") {
+		t.Fatalf("compact payload contains derived fields: %s", string(raw))
 	}
 }
 
@@ -41,7 +46,6 @@ func TestClipboardTextEventV1RejectsInvalidPayloads(t *testing.T) {
 		OriginNode:       12,
 		OriginInstanceID: "instance-a",
 		MaxInlineBytes:   64,
-		Now:              func() time.Time { return time.Unix(1, 0) },
 		NewEventID:       func() (string, error) { return "evt-1", nil },
 	})
 	if err != nil {
@@ -57,26 +61,16 @@ func TestClipboardTextEventV1RejectsInvalidPayloads(t *testing.T) {
 			evt.EventID = ""
 			return evt
 		},
-		"unsupported content type": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
-			evt.ContentType = "text/html"
+		"zero origin node": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
+			evt.OriginNode = 0
 			return evt
 		},
-		"unsupported encoding": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
-			evt.Encoding = "utf-16"
-			return evt
-		},
-		"size mismatch": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
-			evt.Size = 999
-			return evt
-		},
-		"hash mismatch": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
-			evt.SHA256 = strings.Repeat("0", 64)
+		"empty origin instance": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
+			evt.OriginInstanceID = ""
 			return evt
 		},
 		"empty text": func(evt ClipboardTextEventV1) ClipboardTextEventV1 {
 			evt.Text = ""
-			evt.Size = 0
-			evt.SHA256 = HashText("")
 			return evt
 		},
 	}
@@ -108,7 +102,6 @@ func TestClipboardTransferManifestV1ValidatesWithoutBody(t *testing.T) {
 		OriginNode:       12,
 		OriginInstanceID: "instance-a",
 		OriginDevice:     "win-laptop",
-		Now:              func() time.Time { return time.UnixMilli(1760000000000) },
 		NewEventID:       func() (string, error) { return "transfer-1", nil },
 	})
 	if err != nil {
@@ -130,23 +123,20 @@ func TestClipboardTransferManifestV1ValidatesWithoutBody(t *testing.T) {
 	}
 }
 
-func TestParseClipboardTextEventV1RejectsHashMismatch(t *testing.T) {
-	evt, err := NewClipboardTextEventV1("hello", BuildEventOptions{
-		OriginNode:       12,
-		OriginInstanceID: "instance-a",
-		MaxInlineBytes:   64,
-		Now:              func() time.Time { return time.Unix(1, 0) },
-		NewEventID:       func() (string, error) { return "evt-1", nil },
-	})
+func TestParseClipboardTextEventV1ComputesDigestFromCompactPayload(t *testing.T) {
+	payload := []byte(`{"v":1,"id":"evt-1","from":12,"instance":"instance-a","text":"hello"}`)
+	evt, err := ParseClipboardTextEventV1(payload, 64)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ParseClipboardTextEventV1 returned error: %v", err)
 	}
-	evt.Text = "tampered"
-	payload, err := json.Marshal(evt)
-	if err != nil {
-		t.Fatal(err)
+	if evt.Size != len("hello") || evt.SHA256 != HashText("hello") {
+		t.Fatalf("derived digest = size %d hash %q", evt.Size, evt.SHA256)
 	}
-	if _, err := ParseClipboardTextEventV1(payload, 64); err == nil {
-		t.Fatalf("expected hash mismatch error")
+}
+
+func TestParseClipboardTextEventV1RejectsOversizeCompactPayload(t *testing.T) {
+	payload := []byte(`{"v":1,"id":"evt-1","from":12,"instance":"instance-a","text":"hello"}`)
+	if _, err := ParseClipboardTextEventV1(payload, 4); err == nil {
+		t.Fatalf("expected oversize error")
 	}
 }

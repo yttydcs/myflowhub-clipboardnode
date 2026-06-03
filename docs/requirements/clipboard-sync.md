@@ -72,10 +72,10 @@ Security is based on the private MyFlowHub network, authenticated node identity,
 4. ClipboardNode must normalize outbound text as UTF-8 and reject invalid or unsupported clipboard formats.
 5. ClipboardNode must reject empty text by default, unless a future setting explicitly enables empty clipboard propagation.
 6. ClipboardNode must reject outbound text whose UTF-8 byte length exceeds `max_inline_bytes`.
-7. ClipboardNode must publish TopicBus events with event metadata sufficient for dedupe, source tracking, and UI status.
-8. ClipboardNode must ignore events whose `origin_node` or `origin_instance_id` identify the current runtime instance.
-9. ClipboardNode must ignore duplicate `event_id` values within a bounded recent-event window.
-10. ClipboardNode must ignore events whose text hash matches a recent local write caused by the same remote event.
+7. ClipboardNode must publish compact TopicBus text events with event identity, source tracking, and text body fields sufficient for dedupe and loop suppression.
+8. ClipboardNode must ignore events whose `from` or `instance` fields identify the current runtime instance.
+9. ClipboardNode must ignore duplicate `id` values within a bounded recent-event window.
+10. ClipboardNode must compute text hashes locally and ignore events whose text hash matches a recent local write caused by the same remote event.
 11. ClipboardNode must avoid logging clipboard text; logs may include event ID, topic, byte length, hash prefix, and status.
 12. ClipboardNode must perform background registration/login after a transport connection is established, and must expose only UI-safe progress/error status.
 13. ClipboardNode must resubscribe after reconnect or login when enabled.
@@ -138,21 +138,19 @@ Initial small-text payload shape:
 
 ```json
 {
-  "version": 1,
-  "event_id": "uuid",
-  "origin_node": 12,
-  "origin_instance_id": "runtime-uuid",
-  "origin_device": "win-laptop",
-  "content_type": "text/plain",
-  "encoding": "utf-8",
-  "size": 42,
-  "sha256": "hex",
-  "text": "hello",
-  "ts": 1760000000000
+  "v": 1,
+  "id": "uuid",
+  "from": 12,
+  "instance": "runtime-uuid",
+  "device": "win-laptop",
+  "text": "hello"
 }
 ```
 
 The event name should be `clipboard.text.v1`.
+
+ClipboardNode computes UTF-8 byte size and SHA-256 locally from `text`; those
+values are status and validation metadata, not required text-payload fields.
 
 Future large-content announcements should use a distinct ClipboardNode event name such as `clipboard.transfer.v1` and carry only a manifest or reference to an existing Stream/File transfer, not a new subprotocol payload.
 
@@ -172,7 +170,7 @@ Future large-content announcements should use a distinct ClipboardNode event nam
 3. Requirements clearly state that TopicBus is used only for ClipboardNode application events and small inline text.
 4. Requirements clearly state the safe default is disabled.
 5. Requirements clearly state no clipboard text is persisted or logged.
-6. Requirements define loop prevention using origin metadata, event IDs, and text hashes.
+6. Requirements define loop prevention using compact origin fields, event IDs, and locally computed text hashes.
 7. Requirements define an inline size limit and reject oversize text.
 8. Requirements state that existing MyFlowHub protocols must be reused without modification.
 9. Requirements state that private topology and node identity are the default security model, without pairing or room keys.
