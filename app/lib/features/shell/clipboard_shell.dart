@@ -7,16 +7,23 @@ import '../../core/bridge/engine_contract.dart';
 import '../../core/controller/clipboard_controller.dart';
 
 enum ClipboardSection {
-  overview(Icons.dashboard_outlined, Icons.dashboard, '总览'),
-  send(Icons.send_outlined, Icons.send, '发送'),
-  settings(Icons.tune_outlined, Icons.tune, '设置'),
-  activity(Icons.history_outlined, Icons.history, '活动');
+  overview(Icons.dashboard_outlined, Icons.dashboard, '总览', '总览'),
+  send(Icons.send_outlined, Icons.send, '发送', '发送'),
+  history(
+    Icons.content_paste_search_outlined,
+    Icons.content_paste_search,
+    '历史',
+    '剪贴板历史',
+  ),
+  settings(Icons.tune_outlined, Icons.tune, '设置', '设置'),
+  activity(Icons.receipt_long_outlined, Icons.receipt_long, '日志', '日志');
 
-  const ClipboardSection(this.icon, this.selectedIcon, this.label);
+  const ClipboardSection(this.icon, this.selectedIcon, this.label, this.title);
 
   final IconData icon;
   final IconData selectedIcon;
   final String label;
+  final String title;
 }
 
 class ClipboardShell extends StatefulWidget {
@@ -113,10 +120,12 @@ class _SectionContent extends StatelessWidget {
         return _OverviewSection(state: state);
       case ClipboardSection.send:
         return _SendSection(controller: controller, state: state);
+      case ClipboardSection.history:
+        return _ClipboardHistorySection(controller: controller, state: state);
       case ClipboardSection.settings:
         return _SettingsSection(controller: controller, state: state);
       case ClipboardSection.activity:
-        return _ActivitySection(controller: controller, state: state);
+        return _LogSection(controller: controller, state: state);
     }
   }
 }
@@ -138,11 +147,14 @@ class _SideNav extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 18, 20, 16),
-            child: _BrandMark(),
+          Container(
+            height: 72,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.border)),
+            ),
+            child: const Center(child: _BrandMark()),
           ),
-          const Divider(),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(12),
@@ -216,7 +228,7 @@ class _TopBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(section.label, style: title),
+                Text(section.title, style: title),
                 const SizedBox(height: 4),
                 Text(
                   state.settings.topic,
@@ -386,12 +398,12 @@ class _QueuePanel extends StatelessWidget {
     final transfer = state.transferStatus;
     final latest = state.activities.firstOrNull;
     return _Panel(
-      title: pending == null && transfer == null ? '最近事件' : '接收队列',
+      title: pending == null && transfer == null ? '最近日志' : '接收队列',
       icon: Icons.timeline_outlined,
       child: pending == null && transfer == null && latest == null
           ? const _EmptyState(
               icon: Icons.inbox_outlined,
-              title: '暂无活动',
+              title: '暂无日志',
               detail: 'metadata only',
             )
           : Column(
@@ -680,7 +692,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 child: const Column(
                   children: [
                     ListTile(
-                      title: Text('保留活动元数据'),
+                      title: Text('保留日志元数据'),
                       leading: Icon(Icons.list_alt_outlined),
                       trailing: Radio<HistoryRetention>(
                         value: HistoryRetention.metadata,
@@ -688,7 +700,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
                       contentPadding: EdgeInsets.zero,
                     ),
                     ListTile(
-                      title: Text('不保留活动历史'),
+                      title: Text('不保留日志历史'),
                       leading: Icon(Icons.delete_outline),
                       trailing: Radio<HistoryRetention>(
                         value: HistoryRetention.none,
@@ -738,8 +750,11 @@ class _SettingsSectionState extends State<_SettingsSection> {
   }
 }
 
-class _ActivitySection extends StatelessWidget {
-  const _ActivitySection({required this.controller, required this.state});
+class _ClipboardHistorySection extends StatelessWidget {
+  const _ClipboardHistorySection({
+    required this.controller,
+    required this.state,
+  });
 
   final ClipboardController controller;
   final ClipboardEngineState state;
@@ -747,8 +762,59 @@ class _ActivitySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Panel(
-      title: '活动',
-      icon: Icons.history_outlined,
+      title: '剪贴板历史',
+      icon: Icons.content_paste_search_outlined,
+      trailing: OutlinedButton.icon(
+        onPressed: state.activities.isEmpty ? null : controller.clearRecent,
+        icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+        label: const Text('清空历史'),
+      ),
+      child:
+          state.activities.isEmpty &&
+              state.pendingEvent == null &&
+              state.transferStatus == null
+          ? const _EmptyState(
+              icon: Icons.content_paste_off_outlined,
+              title: '暂无剪贴板历史',
+              detail: '仅记录元数据，不保存正文',
+            )
+          : Column(
+              children: [
+                if (state.pendingEvent != null) ...[
+                  _PendingTile(
+                    pending: state.pendingEvent!,
+                    onApply: () =>
+                        controller.applyPending(state.pendingEvent!.eventId),
+                  ),
+                  if (state.transferStatus != null ||
+                      state.activities.isNotEmpty)
+                    const Divider(),
+                ],
+                if (state.transferStatus != null) ...[
+                  _TransferTile(status: state.transferStatus!),
+                  if (state.activities.isNotEmpty) const Divider(),
+                ],
+                for (final activity in state.activities) ...[
+                  _ClipboardHistoryTile(activity: activity),
+                  if (activity != state.activities.last) const Divider(),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class _LogSection extends StatelessWidget {
+  const _LogSection({required this.controller, required this.state});
+
+  final ClipboardController controller;
+  final ClipboardEngineState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      title: '日志',
+      icon: Icons.receipt_long_outlined,
       trailing: OutlinedButton.icon(
         onPressed: state.activities.isEmpty ? null : controller.clearRecent,
         icon: const Icon(Icons.delete_sweep_outlined, size: 18),
@@ -760,7 +826,7 @@ class _ActivitySection extends StatelessWidget {
               state.transferStatus == null
           ? const _EmptyState(
               icon: Icons.inbox_outlined,
-              title: '暂无活动',
+              title: '暂无日志',
               detail: 'metadata only',
             )
           : Column(
@@ -983,6 +1049,82 @@ class _FormGrid extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _ClipboardHistoryTile extends StatelessWidget {
+  const _ClipboardHistoryTile({required this.activity});
+
+  final ClipboardActivity activity;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = switch (activity.kind) {
+      ActivityKind.published => _Tone.success,
+      ActivityKind.applied => _Tone.info,
+      ActivityKind.pending => _Tone.warning,
+      ActivityKind.ignored => _Tone.muted,
+      ActivityKind.error => _Tone.error,
+    };
+    final colors = _toneColors(tone);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: colors.background,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              _activityIcon(activity.kind),
+              color: colors.foreground,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _historyTitle(activity.kind),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${_formatHistoryTime(activity.timestamp)} · ${activity.deviceLabel} · ${activity.byteSize} B',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            constraints: const BoxConstraints(maxWidth: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceMuted,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              activity.hashPrefix.isEmpty ? '-' : activity.hashPrefix,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1498,4 +1640,20 @@ IconData _activityIcon(ActivityKind kind) {
     ActivityKind.ignored => Icons.block,
     ActivityKind.error => Icons.error_outline,
   };
+}
+
+String _historyTitle(ActivityKind kind) {
+  return switch (kind) {
+    ActivityKind.published => '已发送到 Topic',
+    ActivityKind.applied => '已应用到本机剪贴板',
+    ActivityKind.pending => '等待处理的剪贴板内容',
+    ActivityKind.ignored => '已忽略的剪贴板事件',
+    ActivityKind.error => '剪贴板同步失败',
+  };
+}
+
+String _formatHistoryTime(DateTime timestamp) {
+  final local = timestamp.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
 }

@@ -48,11 +48,32 @@ void main() {
 
     expect(find.text('ClipboardNode'), findsWidgets);
     expect(find.text('总览'), findsWidgets);
+    expect(find.text('历史'), findsWidgets);
+    expect(find.text('日志'), findsWidgets);
     expect(find.text('同步关闭'), findsOneWidget);
     expect(find.text('clipboard.text.v1'), findsOneWidget);
     expect(find.text('平台能力'), findsOneWidget);
-    expect(find.text('暂无活动'), findsOneWidget);
+    expect(find.text('暂无日志'), findsOneWidget);
     expect(find.text('安全边界'), findsNothing);
+  });
+
+  testWidgets('opens clipboard history and log sections', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(previewApp());
+
+    await tester.tap(find.text('历史'));
+    await tester.pumpAndSettle();
+    expect(find.text('剪贴板历史'), findsWidgets);
+    expect(find.text('暂无剪贴板历史'), findsOneWidget);
+
+    await tester.tap(find.text('日志').first);
+    await tester.pumpAndSettle();
+    expect(find.text('日志'), findsWidgets);
+    expect(find.text('暂无日志'), findsOneWidget);
   });
 
   testWidgets(
