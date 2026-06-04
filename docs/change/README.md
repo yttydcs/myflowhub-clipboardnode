@@ -4,6 +4,7 @@ Completed workflow archives for ClipboardNode.
 
 ## Current
 
+- [2026-06-04_android-clipboard-topic-settings.md](2026-06-04_android-clipboard-topic-settings.md)
 - [2026-06-04_clipboard-multitopic-history.md](2026-06-04_clipboard-multitopic-history.md)
 - [2026-06-04_clipboardnode-ui-history-settings-polish.md](2026-06-04_clipboardnode-ui-history-settings-polish.md)
 - [2026-06-04_clipboard-body-history.md](2026-06-04_clipboard-body-history.md)
