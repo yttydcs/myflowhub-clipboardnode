@@ -115,6 +115,25 @@ class MobileEngineBridge implements ClipboardEngineBridge {
   }
 
   @override
+  Future<void> restoreHistory(ClipboardHistoryEntry entry) async {
+    if (entry.text.isEmpty) {
+      throw StateError('剪贴板历史正文不能为空');
+    }
+    try {
+      await Clipboard.setData(ClipboardData(text: entry.text));
+      _emit(
+        _state.copyWith(
+          history: promoteClipboardHistoryEntry(_state, entry),
+          lastError: '',
+        ),
+      );
+    } on MissingPluginException {
+      await _fallback.restoreHistory(entry);
+      _emit(_fallback.currentState.copyWith(previewMode: true));
+    }
+  }
+
+  @override
   Future<void> clearRecent() async {
     _emit(
       _state.copyWith(
@@ -149,9 +168,16 @@ class MobileEngineBridge implements ClipboardEngineBridge {
         : <String, Object?>{};
     final nodeId = decoded['NodeID'] as int?;
     final endpoint = decoded['ParentEndpoint'] as String?;
+    final parsedTopics = parseTopicSyncConfigs(
+      runtimeData['Topics'],
+      runtimeData['Topic'] as String? ?? _state.settings.topic,
+      _state.settings.topics,
+    );
+    final normalizedTopics = normalizeTopicSyncConfigs(parsedTopics);
     final settings = _state.settings.copyWith(
       enabled: runtimeData['Enabled'] as bool? ?? _state.settings.enabled,
-      topic: runtimeData['Topic'] as String? ?? _state.settings.topic,
+      topic: runtimeData['Topic'] as String? ?? primaryTopic(normalizedTopics),
+      topics: normalizedTopics,
       deviceId: decoded['DeviceID'] as String? ?? _state.settings.deviceId,
       displayName:
           decoded['DisplayName'] as String? ??
@@ -172,6 +198,15 @@ class MobileEngineBridge implements ClipboardEngineBridge {
         _state.settings.historyLimit,
       ),
     );
+    final pendingEventId = runtimeData['PendingEventID'] as String? ?? '';
+    final pending = pendingEventId.isEmpty
+        ? null
+        : PendingClipboardEvent(
+            eventId: pendingEventId,
+            topic: runtimeData['PendingTopic'] as String? ?? '',
+            byteSize: (runtimeData['PendingSize'] as num?)?.toInt() ?? 0,
+            hashPrefix: runtimeData['PendingHashPrefix'] as String? ?? '',
+          );
     _emit(
       _state.copyWith(
         connected: connected,
@@ -182,6 +217,8 @@ class MobileEngineBridge implements ClipboardEngineBridge {
         nodeId: nodeId,
         settings: settings,
         history: trimClipboardHistory(_state.history, settings),
+        pendingEvent: pending,
+        clearPendingEvent: pending == null,
         lastError:
             decoded['last_error'] as String? ??
             decoded['LastError'] as String? ??
@@ -216,7 +253,11 @@ class MobileEngineBridge implements ClipboardEngineBridge {
           'mobile-${now.microsecondsSinceEpoch}',
       kind: kind,
       title: action,
-      detail: 'TopicBus',
+      detail:
+          decoded['Topic'] is String && (decoded['Topic'] as String).isNotEmpty
+          ? 'TopicBus: ${decoded['Topic']}'
+          : 'TopicBus',
+      topic: decoded['Topic'] as String? ?? '',
       deviceLabel: _state.settings.displayName,
       byteSize: (decoded['Size'] as num?)?.toInt() ?? 0,
       hashPrefix: decoded['HashPrefix'] as String? ?? '',

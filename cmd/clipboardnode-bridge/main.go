@@ -50,6 +50,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	history, err := newHistoryStore(filepath.Join(filepath.Dir(*configFile), "history.json"))
+	if err != nil {
+		return err
+	}
+	if _, err := history.ApplySettings(cfg); err != nil {
+		return err
+	}
 	adapter, err := platform.NewClipboardAdapter(platform.ClipboardOptions{MaxReadBytes: cfg.MaxInlineBytes})
 	if err != nil {
 		return fmt.Errorf("initialize clipboard adapter: %w", err)
@@ -65,10 +72,11 @@ func run() error {
 		return err
 	}
 	host := &stdioHost{
-		store: store,
-		cfg:   cfg,
-		eng:   eng,
-		out:   os.Stdout,
+		store:   store,
+		history: history,
+		cfg:     cfg,
+		eng:     eng,
+		out:     os.Stdout,
 	}
 	if strings.TrimSpace(*webListen) != "" {
 		token := strings.TrimSpace(*webToken)
@@ -85,12 +93,13 @@ func run() error {
 }
 
 type stdioHost struct {
-	store *configstore.Store
-	cfg   coreruntime.Config
-	eng   *engine.Engine
-	out   io.Writer
-	mu    sync.Mutex
-	cmdMu sync.Mutex
+	store   *configstore.Store
+	history *historyStore
+	cfg     coreruntime.Config
+	eng     *engine.Engine
+	out     io.Writer
+	mu      sync.Mutex
+	cmdMu   sync.Mutex
 }
 
 func (h *stdioHost) serve(ctx context.Context, in io.Reader) error {
@@ -98,6 +107,7 @@ func (h *stdioHost) serve(ctx context.Context, in io.Reader) error {
 		return errors.New("bridge host is not initialized")
 	}
 	h.emitStatus("", true, "")
+	h.emitHistory("")
 	go h.forwardDecisions(ctx)
 	scanner := bufio.NewScanner(in)
 	for scanner.Scan() {
@@ -137,6 +147,10 @@ func (h *stdioHost) handle(ctx context.Context, cmd bridge.EngineCommand) (bool,
 			h.emitError(cmd.ID, err)
 			return false, err
 		}
+		if _, err := h.history.ApplySettings(cfg); err != nil {
+			h.emitError(cmd.ID, err)
+			return false, err
+		}
 		if err := h.store.Save(cfg); err != nil {
 			h.emitError(cmd.ID, err)
 			return false, err
@@ -147,6 +161,7 @@ func (h *stdioHost) handle(ctx context.Context, cmd bridge.EngineCommand) (bool,
 		}
 		h.cfg = cfg
 		h.emitStatus(cmd.ID, true, "")
+		h.emitHistory("")
 	case bridge.ActionSendText:
 		var req struct {
 			Text string `json:"text"`
@@ -183,7 +198,23 @@ func (h *stdioHost) handle(ctx context.Context, cmd bridge.EngineCommand) (bool,
 		h.emitCommandOK(cmd.ID)
 		h.emitStatus("", true, "")
 	case bridge.ActionClearRecent:
+		if err := h.history.Clear(); err != nil {
+			h.emitError(cmd.ID, err)
+			return false, err
+		}
 		h.emit(bridge.EngineEvent{ID: cmd.ID, Name: bridge.EventActivityUpdated, OK: true})
+		h.emitHistory("")
+	case bridge.ActionRestoreHistory:
+		var entry bridge.HistoryEntry
+		if err := json.Unmarshal(cmd.Data, &entry); err != nil {
+			h.emitError(cmd.ID, fmt.Errorf("decode restore_history: %w", err))
+			return false, err
+		}
+		if _, err := h.history.Promote(entry, h.cfg); err != nil {
+			h.emitError(cmd.ID, err)
+			return false, err
+		}
+		h.emitHistory(cmd.ID)
 	case bridge.ActionShutdown:
 		err := h.eng.Stop(context.Background())
 		h.emitStatus(cmd.ID, err == nil, errorString(err))
@@ -203,6 +234,7 @@ func (h *stdioHost) serveWeb(ctx context.Context, listen string, token string) e
 	bus := newEventBus()
 	h.out = bus
 	h.emitStatus("", true, "")
+	h.emitHistory("")
 	go h.forwardDecisions(ctx)
 
 	mux := http.NewServeMux()
@@ -257,6 +289,24 @@ func (h *stdioHost) serveWeb(ctx context.Context, listen string, token string) e
 		data, _ := json.Marshal(h.status())
 		_, _ = w.Write(data)
 	})
+	mux.HandleFunc("/history", func(w http.ResponseWriter, r *http.Request) {
+		writeCORS(w)
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authorized(r, token) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		data, _ := json.Marshal(h.historyEntries())
+		_, _ = w.Write(data)
+	})
 	mux.HandleFunc("/command", func(w http.ResponseWriter, r *http.Request) {
 		writeCORS(w)
 		if r.Method == http.MethodOptions {
@@ -283,6 +333,7 @@ func (h *stdioHost) serveWeb(ctx context.Context, listen string, token string) e
 			"ok":       err == nil,
 			"error":    errorString(err),
 			"status":   h.status(),
+			"history":  h.historyEntries(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
@@ -320,6 +371,7 @@ func (h *stdioHost) statusWithError(errMsg string) bridge.Status {
 	cfg := h.cfg
 	if status.Runtime.Topic != "" {
 		cfg.Topic = status.Runtime.Topic
+		cfg.Topics = coreruntime.CloneTopicRoutes(status.Runtime.Topics)
 		cfg.Enabled = status.Runtime.Enabled
 		cfg.AutoWatch = status.Runtime.AutoWatch
 		cfg.AutoApply = status.Runtime.AutoApply
@@ -339,6 +391,7 @@ func (h *stdioHost) statusWithError(errMsg string) bridge.Status {
 		ParentEndpoint:   cfg.ParentEndpoint,
 		Enabled:          cfg.Enabled,
 		Topic:            cfg.Topic,
+		Topics:           bridgeTopicRoutes(cfg.Topics),
 		DeviceID:         cfg.DeviceID,
 		DisplayName:      cfg.DisplayName,
 		DeviceLabel:      cfg.DisplayName,
@@ -352,6 +405,7 @@ func (h *stdioHost) statusWithError(errMsg string) bridge.Status {
 		Subscribed:       status.Runtime.Subscribed,
 		Watching:         status.Runtime.Watching,
 		PendingEventID:   status.Runtime.PendingEventID,
+		PendingTopic:     status.Runtime.PendingTopic,
 		PendingSize:      status.Runtime.PendingSize,
 		PendingHash:      status.Runtime.PendingHashPrefix,
 		LastAction:       string(status.Runtime.LastAction),
@@ -367,8 +421,15 @@ func (h *stdioHost) emitActivity(id string, decision coreruntime.Decision) {
 		return
 	}
 	activity := activityFromDecision(decision, h.cfg, h.eng.Status().Runtime.LastUpdated.UnixMilli())
+	historyChanged, err := h.history.AppendActivity(activity, h.cfg)
+	if err != nil {
+		h.emitError("", err)
+	}
 	data, _ := json.Marshal(activity)
 	h.emit(bridge.EngineEvent{ID: id, Name: bridge.EventActivityUpdated, Data: data, OK: true})
+	if historyChanged {
+		h.emitHistory("")
+	}
 }
 
 func (h *stdioHost) emitTransferIfNeeded(id string, decision coreruntime.Decision) {
@@ -402,6 +463,18 @@ func (h *stdioHost) emitCommandOK(id string) {
 
 func (h *stdioHost) emitError(id string, err error) {
 	h.emit(bridge.EngineEvent{ID: id, Name: bridge.EventError, OK: false, Error: errorString(err)})
+}
+
+func (h *stdioHost) emitHistory(id string) {
+	data, _ := json.Marshal(h.historyEntries())
+	h.emit(bridge.EngineEvent{ID: id, Name: bridge.EventHistoryUpdated, Data: data, OK: true})
+}
+
+func (h *stdioHost) historyEntries() []bridge.HistoryEntry {
+	if h.history == nil {
+		return []bridge.HistoryEntry{}
+	}
+	return h.history.Entries(h.cfg)
 }
 
 func (h *stdioHost) emit(evt bridge.EngineEvent) {
@@ -538,6 +611,7 @@ func configFromSettings(settings bridge.Settings) coreruntime.Config {
 		Enabled:          settings.Enabled,
 		ParentEndpoint:   settings.ParentEndpoint,
 		Topic:            settings.Topic,
+		Topics:           runtimeTopicRoutes(settings.Topics),
 		MaxInlineBytes:   settings.MaxInlineBytes,
 		DeviceID:         settings.DeviceID,
 		DisplayName:      settings.DisplayName,
@@ -552,19 +626,59 @@ func configFromSettings(settings bridge.Settings) coreruntime.Config {
 }
 
 func activityFromDecision(decision coreruntime.Decision, cfg coreruntime.Config, timestampMS int64) bridge.Activity {
+	topic := strings.TrimSpace(decision.Topic)
+	detail := "TopicBus"
+	if topic != "" {
+		detail = "TopicBus: " + topic
+	}
 	activity := bridge.Activity{
 		ID:          decision.EventID,
 		Kind:        activityKind(decision.Action),
 		Title:       string(decision.Action),
-		Detail:      "TopicBus",
+		Detail:      detail,
+		Topic:       topic,
 		ByteSize:    decision.Size,
 		HashPrefix:  decision.HashPrefix,
 		TimestampMS: timestampMS,
 	}
-	if cfg.HistoryRetention == coreruntime.HistoryRetentionBody {
+	if cfg.HistoryRetention == coreruntime.HistoryRetentionBody && decisionCanEnterBodyHistory(decision.Action) {
 		activity.Text = decision.Text
 	}
 	return activity
+}
+
+func decisionCanEnterBodyHistory(action coreruntime.Action) bool {
+	return action == coreruntime.ActionLocalPublished || action == coreruntime.ActionRemoteApplied
+}
+
+func bridgeTopicRoutes(routes []coreruntime.TopicRoute) []bridge.TopicRoute {
+	if len(routes) == 0 {
+		return nil
+	}
+	out := make([]bridge.TopicRoute, 0, len(routes))
+	for _, route := range routes {
+		out = append(out, bridge.TopicRoute{
+			Topic:         route.Topic,
+			SyncToLocal:   route.SyncToLocal,
+			SyncFromLocal: route.SyncFromLocal,
+		})
+	}
+	return out
+}
+
+func runtimeTopicRoutes(routes []bridge.TopicRoute) []coreruntime.TopicRoute {
+	if len(routes) == 0 {
+		return nil
+	}
+	out := make([]coreruntime.TopicRoute, 0, len(routes))
+	for _, route := range routes {
+		out = append(out, coreruntime.TopicRoute{
+			Topic:         route.Topic,
+			SyncToLocal:   route.SyncToLocal,
+			SyncFromLocal: route.SyncFromLocal,
+		})
+	}
+	return out
 }
 
 func activityKind(action coreruntime.Action) string {

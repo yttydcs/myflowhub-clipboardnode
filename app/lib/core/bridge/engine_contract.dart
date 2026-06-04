@@ -9,6 +9,48 @@ abstract final class ClipboardHistoryLimits {
   static const maxLimit = 5000;
 }
 
+abstract final class ClipboardTopicLimits {
+  static const defaultTopic = 'clipboard.text';
+  static const maxTopics = 32;
+}
+
+class TopicSyncConfig {
+  const TopicSyncConfig({
+    required this.topic,
+    required this.syncToLocal,
+    required this.syncFromLocal,
+  });
+
+  const TopicSyncConfig.defaultTopic()
+    : topic = ClipboardTopicLimits.defaultTopic,
+      syncToLocal = true,
+      syncFromLocal = true;
+
+  final String topic;
+  final bool syncToLocal;
+  final bool syncFromLocal;
+
+  TopicSyncConfig copyWith({
+    String? topic,
+    bool? syncToLocal,
+    bool? syncFromLocal,
+  }) {
+    return TopicSyncConfig(
+      topic: topic ?? this.topic,
+      syncToLocal: syncToLocal ?? this.syncToLocal,
+      syncFromLocal: syncFromLocal ?? this.syncFromLocal,
+    );
+  }
+
+  Map<String, Object> toJson() {
+    return {
+      'topic': topic,
+      'sync_to_local': syncToLocal,
+      'sync_from_local': syncFromLocal,
+    };
+  }
+}
+
 class PlatformCapability {
   const PlatformCapability({
     required this.platformLabel,
@@ -32,6 +74,7 @@ class ClipboardSettings {
     required this.enabled,
     required this.parentEndpoint,
     required this.topic,
+    required this.topics,
     required this.deviceId,
     required this.displayName,
     required this.deviceLabel,
@@ -48,7 +91,8 @@ class ClipboardSettings {
     return const ClipboardSettings(
       enabled: false,
       parentEndpoint: '127.0.0.1:9000',
-      topic: 'clipboard/shared',
+      topic: ClipboardTopicLimits.defaultTopic,
+      topics: [TopicSyncConfig.defaultTopic()],
       deviceId: 'local-device',
       displayName: 'local-device',
       deviceLabel: 'local-device',
@@ -65,6 +109,7 @@ class ClipboardSettings {
   final bool enabled;
   final String parentEndpoint;
   final String topic;
+  final List<TopicSyncConfig> topics;
   final String deviceId;
   final String displayName;
   final String deviceLabel;
@@ -80,6 +125,7 @@ class ClipboardSettings {
     bool? enabled,
     String? parentEndpoint,
     String? topic,
+    List<TopicSyncConfig>? topics,
     String? deviceId,
     String? displayName,
     String? deviceLabel,
@@ -95,6 +141,7 @@ class ClipboardSettings {
       enabled: enabled ?? this.enabled,
       parentEndpoint: parentEndpoint ?? this.parentEndpoint,
       topic: topic ?? this.topic,
+      topics: topics ?? this.topics,
       deviceId: deviceId ?? this.deviceId,
       displayName: displayName ?? this.displayName,
       deviceLabel: deviceLabel ?? this.deviceLabel,
@@ -113,6 +160,7 @@ class ClipboardSettings {
       'enabled': enabled,
       'parent_endpoint': parentEndpoint,
       'topic': topic,
+      'topics': [for (final route in topics) route.toJson()],
       'device_id': deviceId,
       'display_name': displayName,
       'device_label': deviceLabel,
@@ -133,6 +181,7 @@ class ClipboardActivity {
     required this.kind,
     required this.title,
     required this.detail,
+    required this.topic,
     required this.deviceLabel,
     required this.byteSize,
     required this.hashPrefix,
@@ -143,6 +192,7 @@ class ClipboardActivity {
   final ActivityKind kind;
   final String title;
   final String detail;
+  final String topic;
   final String deviceLabel;
   final int byteSize;
   final String hashPrefix;
@@ -154,6 +204,7 @@ class ClipboardHistoryEntry {
     required this.id,
     required this.kind,
     required this.text,
+    required this.topic,
     required this.deviceLabel,
     required this.byteSize,
     required this.hashPrefix,
@@ -163,10 +214,24 @@ class ClipboardHistoryEntry {
   final String id;
   final ActivityKind kind;
   final String text;
+  final String topic;
   final String deviceLabel;
   final int byteSize;
   final String hashPrefix;
   final DateTime timestamp;
+
+  Map<String, Object> toJson() {
+    return {
+      'id': id,
+      'kind': kind.name,
+      'text': text,
+      'topic': topic,
+      'device_label': deviceLabel,
+      'byte_size': byteSize,
+      'hash_prefix': hashPrefix,
+      'timestamp_ms': timestamp.millisecondsSinceEpoch,
+    };
+  }
 }
 
 class ClipboardEngineState {
@@ -266,11 +331,13 @@ class ClipboardEngineState {
 class PendingClipboardEvent {
   const PendingClipboardEvent({
     required this.eventId,
+    required this.topic,
     required this.byteSize,
     required this.hashPrefix,
   });
 
   final String eventId;
+  final String topic;
   final int byteSize;
   final String hashPrefix;
 }
@@ -298,6 +365,7 @@ abstract final class EngineActions {
   static const readClipboard = 'read_clipboard';
   static const applyEvent = 'apply_event';
   static const clearRecent = 'clear_recent';
+  static const restoreHistory = 'restore_history';
   static const shutdown = 'shutdown';
 }
 
@@ -305,6 +373,7 @@ abstract final class EngineEvents {
   static const statusChanged = 'status.changed';
   static const activityUpdated = 'activity.updated';
   static const transferUpdated = 'transfer.updated';
+  static const historyUpdated = 'history.updated';
   static const clipboardReceived = 'clipboard.received';
   static const error = 'error';
 }
@@ -359,6 +428,62 @@ int parseHistoryLimit(Object? value, int fallback) {
   return parsed ?? fallback;
 }
 
+List<TopicSyncConfig> parseTopicSyncConfigs(
+  Object? value,
+  String fallbackTopic,
+  List<TopicSyncConfig> fallback,
+) {
+  if (value is List) {
+    return [
+      for (final item in value)
+        if (item is Map)
+          TopicSyncConfig(
+            topic: item['topic'] as String? ?? '',
+            syncToLocal: item['sync_to_local'] as bool? ?? false,
+            syncFromLocal: item['sync_from_local'] as bool? ?? false,
+          ),
+    ];
+  }
+  if (fallback.isNotEmpty) {
+    return fallback;
+  }
+  return [
+    TopicSyncConfig(
+      topic: fallbackTopic,
+      syncToLocal: true,
+      syncFromLocal: true,
+    ),
+  ];
+}
+
+List<TopicSyncConfig> normalizeTopicSyncConfigs(List<TopicSyncConfig> topics) {
+  if (topics.isEmpty) {
+    throw StateError('至少需要一个 Topic');
+  }
+  if (topics.length > ClipboardTopicLimits.maxTopics) {
+    throw StateError('Topic 数量不能超过 ${ClipboardTopicLimits.maxTopics}');
+  }
+  final seen = <String>{};
+  final normalized = <TopicSyncConfig>[];
+  for (final route in topics) {
+    final topic = route.topic.trim();
+    if (topic.isEmpty) {
+      throw StateError('Topic 不能为空');
+    }
+    if (!seen.add(topic)) {
+      throw StateError('Topic 不能重复：$topic');
+    }
+    normalized.add(route.copyWith(topic: topic));
+  }
+  return normalized;
+}
+
+String primaryTopic(List<TopicSyncConfig> topics) {
+  return topics.isEmpty
+      ? ClipboardTopicLimits.defaultTopic
+      : topics.first.topic;
+}
+
 void validateHistoryLimit(int limit) {
   if (limit <= 0) {
     throw StateError('剪贴板历史条数必须大于 0');
@@ -378,6 +503,48 @@ List<ClipboardHistoryEntry> trimClipboardHistory(
   return history.take(settings.historyLimit).toList(growable: false);
 }
 
+List<ClipboardHistoryEntry> parseClipboardHistoryEntries(
+  Object? value,
+  ClipboardSettings settings,
+) {
+  if (settings.historyRetention != HistoryRetention.body || value is! List) {
+    return const [];
+  }
+  final seenTexts = <String>{};
+  final entries = <ClipboardHistoryEntry>[];
+  for (final item in value) {
+    if (item is! Map) {
+      continue;
+    }
+    final text = item['text'] as String? ?? '';
+    if (text.isEmpty || !seenTexts.add(text)) {
+      continue;
+    }
+    final timestampMS = (item['timestamp_ms'] as num?)?.toInt();
+    entries.add(
+      ClipboardHistoryEntry(
+        id:
+            item['id'] as String? ??
+            'history-${DateTime.now().microsecondsSinceEpoch}',
+        kind: parseActivityKind(item['kind'] as String? ?? 'published'),
+        text: text,
+        topic: item['topic'] as String? ?? '',
+        deviceLabel: item['device_label'] as String? ?? '',
+        byteSize:
+            (item['byte_size'] as num?)?.toInt() ?? utf8.encode(text).length,
+        hashPrefix: item['hash_prefix'] as String? ?? '',
+        timestamp: timestampMS == null || timestampMS <= 0
+            ? DateTime.now()
+            : DateTime.fromMillisecondsSinceEpoch(timestampMS),
+      ),
+    );
+    if (entries.length >= settings.historyLimit) {
+      break;
+    }
+  }
+  return entries.toList(growable: false);
+}
+
 List<ClipboardHistoryEntry> appendClipboardHistory(
   ClipboardEngineState state,
   ClipboardActivity activity,
@@ -388,6 +555,7 @@ List<ClipboardHistoryEntry> appendClipboardHistory(
   }
   if (text.isEmpty ||
       activity.kind == ActivityKind.ignored ||
+      activity.kind == ActivityKind.pending ||
       activity.kind == ActivityKind.error) {
     return state.history;
   }
@@ -395,6 +563,7 @@ List<ClipboardHistoryEntry> appendClipboardHistory(
     id: activity.id,
     kind: activity.kind,
     text: text,
+    topic: activity.topic,
     deviceLabel: activity.deviceLabel,
     byteSize: activity.byteSize,
     hashPrefix: activity.hashPrefix,
@@ -402,6 +571,39 @@ List<ClipboardHistoryEntry> appendClipboardHistory(
   );
   return [
     entry,
-    ...state.history.where((existing) => existing.id != entry.id),
+    ...state.history.where((existing) => existing.text != entry.text),
   ].take(state.settings.historyLimit).toList(growable: false);
+}
+
+List<ClipboardHistoryEntry> promoteClipboardHistoryEntry(
+  ClipboardEngineState state,
+  ClipboardHistoryEntry entry,
+) {
+  if (state.settings.historyRetention != HistoryRetention.body) {
+    return state.history;
+  }
+  final promoted = ClipboardHistoryEntry(
+    id: 'restore-${DateTime.now().microsecondsSinceEpoch}',
+    kind: entry.kind,
+    text: entry.text,
+    topic: entry.topic,
+    deviceLabel: entry.deviceLabel,
+    byteSize: entry.byteSize,
+    hashPrefix: entry.hashPrefix,
+    timestamp: DateTime.now(),
+  );
+  return [
+    promoted,
+    ...state.history.where((existing) => existing.text != entry.text),
+  ].take(state.settings.historyLimit).toList(growable: false);
+}
+
+ActivityKind parseActivityKind(String name) {
+  return switch (name) {
+    'published' => ActivityKind.published,
+    'applied' => ActivityKind.applied,
+    'pending' => ActivityKind.pending,
+    'error' => ActivityKind.error,
+    _ => ActivityKind.ignored,
+  };
 }

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -45,6 +46,8 @@ const (
 	ActionIgnoredDuplicate     Action = "ignored_duplicate"
 	ActionIgnoredLoop          Action = "ignored_loop"
 	ActionIgnoredUnchanged     Action = "ignored_unchanged"
+	ActionIgnoredLocalPolicy   Action = "ignored_local_policy"
+	ActionIgnoredTopicPolicy   Action = "ignored_topic_policy"
 	ActionLocalPublished       Action = "local_published"
 	ActionTransferPublished    Action = "transfer_published"
 	ActionTransferPending      Action = "transfer_pending"
@@ -59,6 +62,7 @@ const (
 type Decision struct {
 	Action     Action
 	EventID    string
+	Topic      string
 	Size       int
 	HashPrefix string
 	Text       string `json:"-"`
@@ -67,12 +71,14 @@ type Decision struct {
 type Status struct {
 	Enabled           bool
 	Topic             string
+	Topics            []TopicRoute
 	AutoWatch         bool
 	AutoApply         bool
 	Started           bool
 	Subscribed        bool
 	Watching          bool
 	PendingEventID    string
+	PendingTopic      string
 	PendingSize       int
 	PendingHashPrefix string
 	LastAction        Action
@@ -85,6 +91,7 @@ type Status struct {
 
 type PendingEvent struct {
 	EventID      string
+	Topic        string
 	Size         int
 	HashPrefix   string
 	OriginNode   uint32
@@ -94,6 +101,7 @@ type PendingEvent struct {
 
 type pendingClipboardText struct {
 	event      ClipboardTextEventV1
+	topic      string
 	hashPrefix string
 	receivedAt time.Time
 }
@@ -173,6 +181,7 @@ func New(opts Options) (*Runtime, error) {
 	rt.status = Status{
 		Enabled:     cfg.Enabled,
 		Topic:       cfg.Topic,
+		Topics:      CloneTopicRoutes(cfg.Topics),
 		AutoWatch:   cfg.AutoWatch,
 		AutoApply:   cfg.AutoApply,
 		LastUpdated: now(),
@@ -212,13 +221,16 @@ func (r *Runtime) Start(ctx context.Context) error {
 		r.mu.Unlock()
 		return fmt.Errorf("clipboard adapter is required when clipboard sync is enabled")
 	}
+	topics := subscriptionTopics(cfg)
 	r.mu.Unlock()
 
-	if err := r.topicBus.Subscribe(runCtx, cfg.Topic); err != nil {
+	subscribedTopics, err := subscribeTopics(runCtx, r.topicBus, topics)
+	if err != nil {
+		_ = unsubscribeTopics(context.Background(), r.topicBus, subscribedTopics)
 		cancel()
 		r.clearStartState()
 		r.recordFailure(ActionTransportFailed, "", 0, "", err)
-		return fmt.Errorf("subscribe clipboard topic: %w", err)
+		return fmt.Errorf("subscribe clipboard topics: %w", err)
 	}
 	var watchCtx context.Context
 	var watchCancel context.CancelFunc
@@ -229,7 +241,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 		events, err = r.clipboard.WatchText(watchCtx)
 		if err != nil {
 			watchCancel()
-			_ = r.topicBus.Unsubscribe(context.Background(), cfg.Topic)
+			_ = unsubscribeTopics(context.Background(), r.topicBus, subscribedTopics)
 			cancel()
 			r.clearStartState()
 			r.recordFailure(ActionTransportFailed, "", 0, "", err)
@@ -285,14 +297,14 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	}
 	var unsubscribeErr error
 	if subscribed && r.topicBus != nil {
-		unsubscribeErr = r.topicBus.Unsubscribe(ctx, cfg.Topic)
+		unsubscribeErr = unsubscribeTopics(ctx, r.topicBus, subscriptionTopics(cfg))
 	}
 	var closeErr error
 	if r.clipboard != nil {
 		closeErr = r.clipboard.Close()
 	}
 	if unsubscribeErr != nil {
-		return fmt.Errorf("unsubscribe clipboard topic: %w", unsubscribeErr)
+		return fmt.Errorf("unsubscribe clipboard topics: %w", unsubscribeErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("close clipboard adapter: %w", closeErr)
@@ -321,6 +333,7 @@ func (r *Runtime) UpdateConfig(ctx context.Context, next Config) error {
 		r.cfg = next
 		r.status.Enabled = next.Enabled
 		r.status.Topic = next.Topic
+		r.status.Topics = CloneTopicRoutes(next.Topics)
 		r.status.AutoWatch = next.AutoWatch
 		r.status.AutoApply = next.AutoApply
 		r.status.LastUpdated = r.now()
@@ -345,6 +358,7 @@ func (r *Runtime) UpdateConfig(ctx context.Context, next Config) error {
 		r.watchCancel = nil
 		r.status.Enabled = next.Enabled
 		r.status.Topic = next.Topic
+		r.status.Topics = CloneTopicRoutes(next.Topics)
 		r.status.AutoWatch = next.AutoWatch
 		r.status.AutoApply = next.AutoApply
 		r.status.Subscribed = false
@@ -358,7 +372,7 @@ func (r *Runtime) UpdateConfig(ctx context.Context, next Config) error {
 
 		var unsubscribeErr error
 		if topicBus != nil {
-			unsubscribeErr = topicBus.Unsubscribe(ctx, previous.Topic)
+			unsubscribeErr = unsubscribeTopics(ctx, topicBus, subscriptionTopics(previous))
 		}
 		r.mu.Lock()
 		if unsubscribeErr != nil {
@@ -366,17 +380,19 @@ func (r *Runtime) UpdateConfig(ctx context.Context, next Config) error {
 		}
 		r.mu.Unlock()
 		if unsubscribeErr != nil {
-			return fmt.Errorf("unsubscribe clipboard topic: %w", unsubscribeErr)
+			return fmt.Errorf("unsubscribe clipboard topics: %w", unsubscribeErr)
 		}
 		return nil
 	}
 
-	needsSubscribe := next.Enabled && (!previous.Enabled || previous.Topic != next.Topic)
-	needsUnsubscribe := previous.Enabled && (!next.Enabled || previous.Topic != next.Topic)
-	if needsSubscribe {
-		if err := topicBus.Subscribe(ctx, next.Topic); err != nil {
+	needsSubscribe := topicsToSubscribe(previous, next)
+	needsUnsubscribe := topicsToUnsubscribe(previous, next)
+	if len(needsSubscribe) > 0 {
+		subscribedTopics, err := subscribeTopics(ctx, topicBus, needsSubscribe)
+		if err != nil {
+			_ = unsubscribeTopics(context.Background(), topicBus, subscribedTopics)
 			r.recordFailure(ActionTransportFailed, "", 0, "", err)
-			return fmt.Errorf("subscribe clipboard topic: %w", err)
+			return fmt.Errorf("subscribe clipboard topics: %w", err)
 		}
 	}
 
@@ -392,20 +408,20 @@ func (r *Runtime) UpdateConfig(ctx context.Context, next Config) error {
 		events, err = clip.WatchText(watcherCtx)
 		if err != nil {
 			newWatchCancel()
-			if needsSubscribe {
-				_ = topicBus.Unsubscribe(context.Background(), next.Topic)
+			if len(needsSubscribe) > 0 {
+				_ = unsubscribeTopics(context.Background(), topicBus, needsSubscribe)
 			}
 			r.recordFailure(ActionTransportFailed, "", 0, "", err)
 			return fmt.Errorf("watch clipboard text: %w", err)
 		}
 	}
-	if needsUnsubscribe {
-		if err := topicBus.Unsubscribe(ctx, previous.Topic); err != nil {
-			if needsSubscribe {
-				_ = topicBus.Unsubscribe(context.Background(), next.Topic)
+	if len(needsUnsubscribe) > 0 {
+		if err := unsubscribeTopics(ctx, topicBus, needsUnsubscribe); err != nil {
+			if len(needsSubscribe) > 0 {
+				_ = unsubscribeTopics(context.Background(), topicBus, needsSubscribe)
 			}
 			r.recordFailure(ActionTransportFailed, "", 0, "", err)
-			return fmt.Errorf("unsubscribe clipboard topic: %w", err)
+			return fmt.Errorf("unsubscribe clipboard topics: %w", err)
 		}
 	}
 
@@ -418,6 +434,7 @@ func (r *Runtime) UpdateConfig(ctx context.Context, next Config) error {
 	}
 	r.status.Enabled = next.Enabled
 	r.status.Topic = next.Topic
+	r.status.Topics = CloneTopicRoutes(next.Topics)
 	r.status.AutoWatch = next.AutoWatch
 	r.status.AutoApply = next.AutoApply
 	r.status.Subscribed = next.Enabled
@@ -447,9 +464,11 @@ func (r *Runtime) OnConnectivityRestored(ctx context.Context) error {
 	if topicBus == nil {
 		return fmt.Errorf("topicbus client is required")
 	}
-	if err := topicBus.Subscribe(ctx, cfg.Topic); err != nil {
+	subscribedTopics, err := subscribeTopics(ctx, topicBus, subscriptionTopics(cfg))
+	if err != nil {
+		_ = unsubscribeTopics(context.Background(), topicBus, subscribedTopics)
 		r.recordFailure(ActionTransportFailed, "", 0, "", err)
-		return fmt.Errorf("resubscribe clipboard topic: %w", err)
+		return fmt.Errorf("resubscribe clipboard topics: %w", err)
 	}
 	r.mu.Lock()
 	r.subscribed = true
@@ -507,6 +526,15 @@ func (r *Runtime) HandleLocalText(ctx context.Context, evt clipboard.TextEvent) 
 	}
 	r.mu.Unlock()
 
+	publishTargets := publishTopics(cfg)
+	if len(publishTargets) == 0 {
+		decision := Decision{Action: ActionIgnoredLocalPolicy, Size: digest.Size, HashPrefix: hashPrefix}
+		r.mu.Lock()
+		r.recordDecisionLocked(decision)
+		r.mu.Unlock()
+		return decision, nil
+	}
+
 	out, err := newClipboardTextEventV1WithDigest(evt.Text, digest, BuildEventOptions{
 		OriginNode:       nodeID,
 		OriginInstanceID: instanceID,
@@ -524,12 +552,15 @@ func (r *Runtime) HandleLocalText(ctx context.Context, evt clipboard.TextEvent) 
 		r.recordFailure(ActionValidationFailed, out.EventID, digest.Size, hashPrefix, err)
 		return Decision{Action: ActionValidationFailed, EventID: out.EventID, Size: digest.Size, HashPrefix: hashPrefix}, err
 	}
-	if err := topicBus.Publish(ctx, cfg.Topic, ClipboardTextEventName, payload); err != nil {
-		r.recordFailure(ActionTransportFailed, out.EventID, digest.Size, hashPrefix, err)
-		return Decision{Action: ActionTransportFailed, EventID: out.EventID, Size: digest.Size, HashPrefix: hashPrefix}, fmt.Errorf("publish clipboard event: %w", err)
+	for _, topic := range publishTargets {
+		if err := topicBus.Publish(ctx, topic, ClipboardTextEventName, payload); err != nil {
+			decision := Decision{Action: ActionTransportFailed, EventID: out.EventID, Topic: topic, Size: digest.Size, HashPrefix: hashPrefix}
+			r.recordFailureDecision(decision, err)
+			return decision, fmt.Errorf("publish clipboard event to %q: %w", topic, err)
+		}
 	}
 
-	decision := Decision{Action: ActionLocalPublished, EventID: out.EventID, Size: digest.Size, HashPrefix: hashPrefix, Text: evt.Text}
+	decision := Decision{Action: ActionLocalPublished, EventID: out.EventID, Topic: topicListLabel(publishTargets), Size: digest.Size, HashPrefix: hashPrefix, Text: evt.Text}
 	r.mu.Lock()
 	r.lastLocalHash = digest.SHA256
 	r.recentEvents.Add(out.EventID)
@@ -554,15 +585,17 @@ func (r *Runtime) ApplyPending(ctx context.Context, eventID string) (Decision, e
 
 	if clip == nil {
 		err := fmt.Errorf("clipboard adapter is required")
-		r.recordFailure(ActionClipboardWriteFailed, pending.event.EventID, pending.event.Size, pending.hashPrefix, err)
-		return Decision{Action: ActionClipboardWriteFailed, EventID: pending.event.EventID, Size: pending.event.Size, HashPrefix: pending.hashPrefix}, err
+		decision := Decision{Action: ActionClipboardWriteFailed, EventID: pending.event.EventID, Topic: pending.topic, Size: pending.event.Size, HashPrefix: pending.hashPrefix}
+		r.recordFailureDecision(decision, err)
+		return decision, err
 	}
 	if err := clip.WriteText(ctx, pending.event.Text); err != nil {
-		r.recordFailure(ActionClipboardWriteFailed, pending.event.EventID, pending.event.Size, pending.hashPrefix, err)
-		return Decision{Action: ActionClipboardWriteFailed, EventID: pending.event.EventID, Size: pending.event.Size, HashPrefix: pending.hashPrefix}, fmt.Errorf("write clipboard text: %w", err)
+		decision := Decision{Action: ActionClipboardWriteFailed, EventID: pending.event.EventID, Topic: pending.topic, Size: pending.event.Size, HashPrefix: pending.hashPrefix}
+		r.recordFailureDecision(decision, err)
+		return decision, fmt.Errorf("write clipboard text: %w", err)
 	}
 
-	decision := Decision{Action: ActionRemoteApplied, EventID: pending.event.EventID, Size: pending.event.Size, HashPrefix: pending.hashPrefix, Text: pending.event.Text}
+	decision := Decision{Action: ActionRemoteApplied, EventID: pending.event.EventID, Topic: pending.topic, Size: pending.event.Size, HashPrefix: pending.hashPrefix, Text: pending.event.Text}
 	r.mu.Lock()
 	r.deletePendingLocked(eventID)
 	r.recentEvents.Add(pending.event.EventID)
@@ -579,6 +612,7 @@ func (r *Runtime) Pending() []PendingEvent {
 	for _, pending := range r.pendingRemote {
 		out = append(out, PendingEvent{
 			EventID:      pending.event.EventID,
+			Topic:        pending.topic,
 			Size:         pending.event.Size,
 			HashPrefix:   pending.hashPrefix,
 			OriginNode:   pending.event.OriginNode,
@@ -598,14 +632,21 @@ func (r *Runtime) HandleTopicBusMessage(ctx context.Context, msg TopicBusMessage
 		r.mu.Unlock()
 		return decision, nil
 	}
-	if msg.Topic != cfg.Topic {
-		decision := Decision{Action: ActionIgnoredTopic}
+	route, ok := topicRouteFor(cfg, msg.Topic)
+	if !ok {
+		decision := Decision{Action: ActionIgnoredTopic, Topic: msg.Topic}
+		r.recordDecisionLocked(decision)
+		r.mu.Unlock()
+		return decision, nil
+	}
+	if !route.SyncToLocal {
+		decision := Decision{Action: ActionIgnoredTopicPolicy, Topic: msg.Topic}
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
 		return decision, nil
 	}
 	if msg.Name != ClipboardTextEventName && msg.Name != ClipboardTransferEventName {
-		decision := Decision{Action: ActionIgnoredName}
+		decision := Decision{Action: ActionIgnoredName, Topic: msg.Topic}
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
 		return decision, nil
@@ -616,37 +657,38 @@ func (r *Runtime) HandleTopicBusMessage(ctx context.Context, msg TopicBusMessage
 	autoApply := cfg.AutoApply
 	r.mu.Unlock()
 	if msg.Name == ClipboardTransferEventName {
-		return r.handleTransferManifest(msg.Payload, cfg.MaxInlineBytes, nodeID, instanceID)
+		return r.handleTransferManifest(msg.Topic, msg.Payload, cfg.MaxInlineBytes, nodeID, instanceID)
 	}
 	in, err := ParseClipboardTextEventV1(msg.Payload, cfg.MaxInlineBytes)
 	if err != nil {
-		r.recordFailure(ActionValidationFailed, "", 0, "", err)
-		return Decision{Action: ActionValidationFailed}, err
+		decision := Decision{Action: ActionValidationFailed, Topic: msg.Topic}
+		r.recordFailureDecision(decision, err)
+		return decision, err
 	}
 	hashPrefix := hashPrefix(in.SHA256)
 
 	r.mu.Lock()
 	if in.IsLocalOrigin(nodeID, instanceID) {
-		decision := Decision{Action: ActionIgnoredLocalOrigin, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}
+		decision := Decision{Action: ActionIgnoredLocalOrigin, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix}
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
 		return decision, nil
 	}
 	if r.recentEvents.Contains(in.EventID) {
-		decision := Decision{Action: ActionIgnoredDuplicate, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}
+		decision := Decision{Action: ActionIgnoredDuplicate, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix}
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
 		return decision, nil
 	}
 	if _, ok := r.pendingRemote[in.EventID]; ok {
-		decision := Decision{Action: ActionIgnoredDuplicate, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}
+		decision := Decision{Action: ActionIgnoredDuplicate, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix}
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
 		return decision, nil
 	}
 	if !autoApply {
-		decision := Decision{Action: ActionRemotePending, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix, Text: in.Text}
-		r.addPendingLocked(pendingClipboardText{event: in, hashPrefix: hashPrefix, receivedAt: r.now()})
+		decision := Decision{Action: ActionRemotePending, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix, Text: in.Text}
+		r.addPendingLocked(pendingClipboardText{event: in, topic: msg.Topic, hashPrefix: hashPrefix, receivedAt: r.now()})
 		r.recordDecisionLocked(decision)
 		r.mu.Unlock()
 		return decision, nil
@@ -655,15 +697,17 @@ func (r *Runtime) HandleTopicBusMessage(ctx context.Context, msg TopicBusMessage
 
 	if clip == nil {
 		err := fmt.Errorf("clipboard adapter is required")
-		r.recordFailure(ActionClipboardWriteFailed, in.EventID, in.Size, hashPrefix, err)
-		return Decision{Action: ActionClipboardWriteFailed, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}, err
+		decision := Decision{Action: ActionClipboardWriteFailed, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix}
+		r.recordFailureDecision(decision, err)
+		return decision, err
 	}
 	if err := clip.WriteText(ctx, in.Text); err != nil {
-		r.recordFailure(ActionClipboardWriteFailed, in.EventID, in.Size, hashPrefix, err)
-		return Decision{Action: ActionClipboardWriteFailed, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix}, fmt.Errorf("write clipboard text: %w", err)
+		decision := Decision{Action: ActionClipboardWriteFailed, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix}
+		r.recordFailureDecision(decision, err)
+		return decision, fmt.Errorf("write clipboard text: %w", err)
 	}
 
-	decision := Decision{Action: ActionRemoteApplied, EventID: in.EventID, Size: in.Size, HashPrefix: hashPrefix, Text: in.Text}
+	decision := Decision{Action: ActionRemoteApplied, EventID: in.EventID, Topic: msg.Topic, Size: in.Size, HashPrefix: hashPrefix, Text: in.Text}
 	r.mu.Lock()
 	r.recentEvents.Add(in.EventID)
 	r.suppressHashes.Add(in.SHA256)
@@ -693,6 +737,14 @@ func (r *Runtime) publishTransferManifest(ctx context.Context, digest TextDigest
 		r.recordFailure(ActionTransportFailed, "", digest.Size, hashPrefix, err)
 		return Decision{Action: ActionTransportFailed, Size: digest.Size, HashPrefix: hashPrefix}, err
 	}
+	publishTargets := publishTopics(cfg)
+	if len(publishTargets) == 0 {
+		decision := Decision{Action: ActionIgnoredLocalPolicy, Size: digest.Size, HashPrefix: hashPrefix}
+		r.mu.Lock()
+		r.recordDecisionLocked(decision)
+		r.mu.Unlock()
+		return decision, nil
+	}
 	manifest, err := NewClipboardTransferManifestV1(digest, []TransferReference{
 		{Provider: cfg.TransferProvider, OpaqueID: cfg.TransferRef},
 	}, BuildEventOptions{
@@ -712,11 +764,14 @@ func (r *Runtime) publishTransferManifest(ctx context.Context, digest TextDigest
 		r.recordFailure(ActionValidationFailed, manifest.EventID, digest.Size, hashPrefix, err)
 		return Decision{Action: ActionValidationFailed, EventID: manifest.EventID, Size: digest.Size, HashPrefix: hashPrefix}, err
 	}
-	if err := topicBus.Publish(ctx, cfg.Topic, ClipboardTransferEventName, payload); err != nil {
-		r.recordFailure(ActionTransportFailed, manifest.EventID, digest.Size, hashPrefix, err)
-		return Decision{Action: ActionTransportFailed, EventID: manifest.EventID, Size: digest.Size, HashPrefix: hashPrefix}, fmt.Errorf("publish clipboard transfer manifest: %w", err)
+	for _, topic := range publishTargets {
+		if err := topicBus.Publish(ctx, topic, ClipboardTransferEventName, payload); err != nil {
+			decision := Decision{Action: ActionTransportFailed, EventID: manifest.EventID, Topic: topic, Size: digest.Size, HashPrefix: hashPrefix}
+			r.recordFailureDecision(decision, err)
+			return decision, fmt.Errorf("publish clipboard transfer manifest to %q: %w", topic, err)
+		}
 	}
-	decision := Decision{Action: ActionTransferPublished, EventID: manifest.EventID, Size: digest.Size, HashPrefix: hashPrefix}
+	decision := Decision{Action: ActionTransferPublished, EventID: manifest.EventID, Topic: topicListLabel(publishTargets), Size: digest.Size, HashPrefix: hashPrefix}
 	r.mu.Lock()
 	r.lastLocalHash = digest.SHA256
 	r.recentEvents.Add(manifest.EventID)
@@ -725,28 +780,29 @@ func (r *Runtime) publishTransferManifest(ctx context.Context, digest TextDigest
 	return decision, nil
 }
 
-func (r *Runtime) handleTransferManifest(payload []byte, maxInlineBytes int, nodeID uint32, instanceID string) (Decision, error) {
+func (r *Runtime) handleTransferManifest(topic string, payload []byte, maxInlineBytes int, nodeID uint32, instanceID string) (Decision, error) {
 	_ = maxInlineBytes
 	manifest, err := ParseClipboardTransferManifestV1(payload)
 	if err != nil {
-		r.recordFailure(ActionValidationFailed, "", 0, "", err)
-		return Decision{Action: ActionValidationFailed}, err
+		decision := Decision{Action: ActionValidationFailed, Topic: topic}
+		r.recordFailureDecision(decision, err)
+		return decision, err
 	}
 	hashPrefix := hashPrefix(manifest.SHA256)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if manifest.IsLocalOrigin(nodeID, instanceID) {
-		decision := Decision{Action: ActionIgnoredLocalOrigin, EventID: manifest.EventID, Size: manifest.Size, HashPrefix: hashPrefix}
+		decision := Decision{Action: ActionIgnoredLocalOrigin, EventID: manifest.EventID, Topic: topic, Size: manifest.Size, HashPrefix: hashPrefix}
 		r.recordDecisionLocked(decision)
 		return decision, nil
 	}
 	if r.recentEvents.Contains(manifest.EventID) {
-		decision := Decision{Action: ActionIgnoredDuplicate, EventID: manifest.EventID, Size: manifest.Size, HashPrefix: hashPrefix}
+		decision := Decision{Action: ActionIgnoredDuplicate, EventID: manifest.EventID, Topic: topic, Size: manifest.Size, HashPrefix: hashPrefix}
 		r.recordDecisionLocked(decision)
 		return decision, nil
 	}
 	r.recentEvents.Add(manifest.EventID)
-	decision := Decision{Action: ActionTransferPending, EventID: manifest.EventID, Size: manifest.Size, HashPrefix: hashPrefix}
+	decision := Decision{Action: ActionTransferPending, EventID: manifest.EventID, Topic: topic, Size: manifest.Size, HashPrefix: hashPrefix}
 	r.recordDecisionLocked(decision)
 	return decision, nil
 }
@@ -790,9 +846,12 @@ func (r *Runtime) clearStartState() {
 }
 
 func (r *Runtime) recordFailure(action Action, eventID string, size int, hash string, err error) {
+	r.recordFailureDecision(Decision{Action: action, EventID: eventID, Size: size, HashPrefix: hash}, err)
+}
+
+func (r *Runtime) recordFailureDecision(decision Decision, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	decision := Decision{Action: action, EventID: eventID, Size: size, HashPrefix: hash}
 	r.recordDecisionLocked(decision)
 	if err != nil {
 		r.status.LastError = err.Error()
@@ -802,6 +861,7 @@ func (r *Runtime) recordFailure(action Action, eventID string, size int, hash st
 func (r *Runtime) recordDecisionLocked(decision Decision) {
 	r.status.Enabled = r.cfg.Enabled
 	r.status.Topic = r.cfg.Topic
+	r.status.Topics = CloneTopicRoutes(r.cfg.Topics)
 	r.status.AutoWatch = r.cfg.AutoWatch
 	r.status.AutoApply = r.cfg.AutoApply
 	r.status.Started = r.started
@@ -812,6 +872,7 @@ func (r *Runtime) recordDecisionLocked(decision Decision) {
 	r.status.LastSize = decision.Size
 	r.status.LastHash = decision.HashPrefix
 	r.status.PendingEventID = ""
+	r.status.PendingTopic = ""
 	r.status.PendingSize = 0
 	r.status.PendingHashPrefix = ""
 	for i := len(r.pendingOrder) - 1; i >= 0; i-- {
@@ -821,6 +882,7 @@ func (r *Runtime) recordDecisionLocked(decision Decision) {
 			continue
 		}
 		r.status.PendingEventID = pending.event.EventID
+		r.status.PendingTopic = pending.topic
 		r.status.PendingSize = pending.event.Size
 		r.status.PendingHashPrefix = pending.hashPrefix
 		break
@@ -886,4 +948,109 @@ func hashPrefix(hash string) string {
 		return hash
 	}
 	return hash[:12]
+}
+
+func subscriptionTopics(cfg Config) []string {
+	topics := make([]string, 0, len(cfg.Topics))
+	for _, route := range cfg.Topics {
+		if route.Topic != "" {
+			topics = append(topics, route.Topic)
+		}
+	}
+	return topics
+}
+
+func publishTopics(cfg Config) []string {
+	topics := make([]string, 0, len(cfg.Topics))
+	for _, route := range cfg.Topics {
+		if route.SyncFromLocal && route.Topic != "" {
+			topics = append(topics, route.Topic)
+		}
+	}
+	return topics
+}
+
+func topicRouteFor(cfg Config, topic string) (TopicRoute, bool) {
+	topic = strings.TrimSpace(topic)
+	for _, route := range cfg.Topics {
+		if route.Topic == topic {
+			return route, true
+		}
+	}
+	return TopicRoute{}, false
+}
+
+func topicsToSubscribe(previous Config, next Config) []string {
+	if !next.Enabled {
+		return nil
+	}
+	nextTopics := subscriptionTopics(next)
+	if !previous.Enabled {
+		return nextTopics
+	}
+	previousSet := topicSet(subscriptionTopics(previous))
+	out := make([]string, 0, len(nextTopics))
+	for _, topic := range nextTopics {
+		if _, ok := previousSet[topic]; !ok {
+			out = append(out, topic)
+		}
+	}
+	return out
+}
+
+func topicsToUnsubscribe(previous Config, next Config) []string {
+	if !previous.Enabled {
+		return nil
+	}
+	previousTopics := subscriptionTopics(previous)
+	if !next.Enabled {
+		return previousTopics
+	}
+	nextSet := topicSet(subscriptionTopics(next))
+	out := make([]string, 0, len(previousTopics))
+	for _, topic := range previousTopics {
+		if _, ok := nextSet[topic]; !ok {
+			out = append(out, topic)
+		}
+	}
+	return out
+}
+
+func topicSet(topics []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(topics))
+	for _, topic := range topics {
+		out[topic] = struct{}{}
+	}
+	return out
+}
+
+func subscribeTopics(ctx context.Context, client TopicBusClient, topics []string) ([]string, error) {
+	if client == nil {
+		return nil, fmt.Errorf("topicbus client is required")
+	}
+	subscribed := make([]string, 0, len(topics))
+	for _, topic := range topics {
+		if err := client.Subscribe(ctx, topic); err != nil {
+			return subscribed, fmt.Errorf("subscribe %q: %w", topic, err)
+		}
+		subscribed = append(subscribed, topic)
+	}
+	return subscribed, nil
+}
+
+func unsubscribeTopics(ctx context.Context, client TopicBusClient, topics []string) error {
+	if client == nil || len(topics) == 0 {
+		return nil
+	}
+	var errs []error
+	for _, topic := range topics {
+		if err := client.Unsubscribe(ctx, topic); err != nil {
+			errs = append(errs, fmt.Errorf("unsubscribe %q: %w", topic, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func topicListLabel(topics []string) string {
+	return strings.Join(topics, ", ")
 }

@@ -39,6 +39,10 @@ class ClipboardController extends ChangeNotifier {
     return _run(() => _bridge.applyPending(eventId));
   }
 
+  Future<void> restoreHistory(ClipboardHistoryEntry entry) {
+    return _run(() => _bridge.restoreHistory(entry));
+  }
+
   Future<void> clearRecent() => _run(_bridge.clearRecent);
 
   Future<void> _run(Future<void> Function() action) async {

@@ -18,6 +18,7 @@ type fakeTopicBus struct {
 	unsubscribed   []string
 	published      []TopicBusMessage
 	subscribeErr   error
+	subscribeErrOn string
 	publishErr     error
 	unsubscribeErr error
 }
@@ -25,7 +26,7 @@ type fakeTopicBus struct {
 func (f *fakeTopicBus) Subscribe(_ context.Context, topic string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.subscribeErr != nil {
+	if f.subscribeErr != nil && (f.subscribeErrOn == "" || f.subscribeErrOn == topic) {
 		return f.subscribeErr
 	}
 	f.subscribed = append(f.subscribed, topic)
@@ -164,6 +165,80 @@ func TestRuntimeHandleLocalTextPublishesValidEvent(t *testing.T) {
 	}
 }
 
+func TestRuntimeLocalPublishFansOutToSyncFromLocalTopics(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			MaxInlineBytes: 64,
+			AutoApply:      true,
+			Topics: []TopicRoute{
+				{Topic: "clipboard/a", SyncToLocal: true, SyncFromLocal: true},
+				{Topic: "clipboard/b", SyncToLocal: true, SyncFromLocal: false},
+				{Topic: "clipboard/c", SyncToLocal: false, SyncFromLocal: true},
+			},
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+		NewEventID: func() (string, error) { return "evt-local", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := rt.HandleLocalText(context.Background(), clipboard.TextEvent{Text: "hello"})
+	if err != nil {
+		t.Fatalf("HandleLocalText returned error: %v", err)
+	}
+	if decision.Action != ActionLocalPublished {
+		t.Fatalf("action = %s", decision.Action)
+	}
+	if bus.publishCount() != 2 {
+		t.Fatalf("publish count = %d", bus.publishCount())
+	}
+	gotTopics := []string{bus.published[0].Topic, bus.published[1].Topic}
+	if strings.Join(gotTopics, ",") != "clipboard/a,clipboard/c" {
+		t.Fatalf("published topics = %v", gotTopics)
+	}
+}
+
+func TestRuntimeLocalPublishIgnoredWhenNoSyncFromLocalTopic(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			MaxInlineBytes: 64,
+			Topics: []TopicRoute{
+				{Topic: "clipboard/read-only", SyncToLocal: true, SyncFromLocal: false},
+			},
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := rt.HandleLocalText(context.Background(), clipboard.TextEvent{Text: "hello"})
+	if err != nil {
+		t.Fatalf("HandleLocalText returned error: %v", err)
+	}
+	if decision.Action != ActionIgnoredLocalPolicy {
+		t.Fatalf("action = %s", decision.Action)
+	}
+	if bus.publishCount() != 0 {
+		t.Fatalf("publish count = %d", bus.publishCount())
+	}
+}
+
 func TestRuntimeDisabledDoesNotPublishOrApply(t *testing.T) {
 	bus := &fakeTopicBus{}
 	clip := newFakeClipboard()
@@ -248,6 +323,60 @@ func TestRuntimeRemoteApplyDuplicateAndLoopSuppression(t *testing.T) {
 	}
 }
 
+func TestRuntimeRemoteApplyHonorsTopicSyncToLocalPolicy(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			MaxInlineBytes: 64,
+			AutoApply:      true,
+			Topics: []TopicRoute{
+				{Topic: "clipboard/read", SyncToLocal: true, SyncFromLocal: false},
+				{Topic: "clipboard/write", SyncToLocal: false, SyncFromLocal: true},
+			},
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := rt.HandleTopicBusMessage(context.Background(), buildRemoteMessageOnTopic(t, "clipboard/write", "evt-write", "write-only text"))
+	if err != nil {
+		t.Fatalf("write-only topic returned error: %v", err)
+	}
+	if decision.Action != ActionIgnoredTopicPolicy || decision.Topic != "clipboard/write" {
+		t.Fatalf("write-only decision = %+v", decision)
+	}
+	if len(clip.writes) != 0 {
+		t.Fatalf("writes = %v", clip.writes)
+	}
+
+	decision, err = rt.HandleTopicBusMessage(context.Background(), buildRemoteMessageOnTopic(t, "clipboard/unknown", "evt-unknown", "unknown text"))
+	if err != nil {
+		t.Fatalf("unknown topic returned error: %v", err)
+	}
+	if decision.Action != ActionIgnoredTopic || decision.Topic != "clipboard/unknown" {
+		t.Fatalf("unknown decision = %+v", decision)
+	}
+
+	decision, err = rt.HandleTopicBusMessage(context.Background(), buildRemoteMessageOnTopic(t, "clipboard/read", "evt-read", "read text"))
+	if err != nil {
+		t.Fatalf("read topic returned error: %v", err)
+	}
+	if decision.Action != ActionRemoteApplied || decision.Topic != "clipboard/read" {
+		t.Fatalf("read decision = %+v", decision)
+	}
+	if len(clip.writes) != 1 || clip.writes[0] != "read text" {
+		t.Fatalf("writes after read topic = %v", clip.writes)
+	}
+}
+
 func TestRuntimeIgnoresLocalOriginEvent(t *testing.T) {
 	bus := &fakeTopicBus{}
 	clip := newFakeClipboard()
@@ -318,6 +447,101 @@ func TestRuntimeStartUpdateConfigAndResubscribe(t *testing.T) {
 	}
 	if len(bus.unsubscribed) != 1 || bus.unsubscribed[0] != "clipboard/dev" {
 		t.Fatalf("unsubscriptions = %v", bus.unsubscribed)
+	}
+}
+
+func TestRuntimeStartUpdateConfigWithMultipleTopics(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			MaxInlineBytes: 64,
+			Topics: []TopicRoute{
+				{Topic: "clipboard/a", SyncToLocal: true, SyncFromLocal: true},
+				{Topic: "clipboard/b", SyncToLocal: true, SyncFromLocal: false},
+			},
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	if strings.Join(bus.subscribed, ",") != "clipboard/a,clipboard/b" {
+		t.Fatalf("subscriptions = %v", bus.subscribed)
+	}
+	if err := rt.UpdateConfig(context.Background(), Config{
+		Enabled:        true,
+		MaxInlineBytes: 64,
+		Topics: []TopicRoute{
+			{Topic: "clipboard/b", SyncToLocal: false, SyncFromLocal: true},
+			{Topic: "clipboard/c", SyncToLocal: true, SyncFromLocal: true},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateConfig returned error: %v", err)
+	}
+	if strings.Join(bus.subscribed, ",") != "clipboard/a,clipboard/b,clipboard/c" {
+		t.Fatalf("subscriptions after update = %v", bus.subscribed)
+	}
+	if strings.Join(bus.unsubscribed, ",") != "clipboard/a" {
+		t.Fatalf("unsubscriptions after update = %v", bus.unsubscribed)
+	}
+	if err := rt.OnConnectivityRestored(context.Background()); err != nil {
+		t.Fatalf("OnConnectivityRestored returned error: %v", err)
+	}
+	if strings.Join(bus.subscribed, ",") != "clipboard/a,clipboard/b,clipboard/c,clipboard/b,clipboard/c" {
+		t.Fatalf("subscriptions after reconnect = %v", bus.subscribed)
+	}
+}
+
+func TestRuntimeReconnectCleansUpPartialMultiTopicSubscribe(t *testing.T) {
+	bus := &fakeTopicBus{}
+	clip := newFakeClipboard()
+	rt, err := New(Options{
+		Config: Config{
+			Enabled:        true,
+			MaxInlineBytes: 64,
+			Topics: []TopicRoute{
+				{Topic: "clipboard/a", SyncToLocal: true, SyncFromLocal: true},
+				{Topic: "clipboard/b", SyncToLocal: true, SyncFromLocal: true},
+			},
+		},
+		NodeID:     12,
+		InstanceID: "instance-a",
+		Clipboard:  clip,
+		TopicBus:   bus,
+		Now:        func() time.Time { return time.Unix(1, 0) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.Start(context.Background()); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	bus.mu.Lock()
+	bus.subscribed = nil
+	bus.unsubscribed = nil
+	bus.subscribeErr = errors.New("subscribe failed")
+	bus.subscribeErrOn = "clipboard/b"
+	bus.mu.Unlock()
+	if err := rt.OnConnectivityRestored(context.Background()); err == nil {
+		t.Fatal("expected reconnect subscribe error")
+	}
+	if strings.Join(bus.subscribed, ",") != "clipboard/a" {
+		t.Fatalf("subscriptions = %v", bus.subscribed)
+	}
+	if strings.Join(bus.unsubscribed, ",") != "clipboard/a" {
+		t.Fatalf("partial cleanup unsubscriptions = %v", bus.unsubscribed)
+	}
+	if rt.Status().LastError == "" {
+		t.Fatal("expected reconnect failure to be recorded")
 	}
 }
 
@@ -657,6 +881,11 @@ func newTestRuntime(t *testing.T, bus *fakeTopicBus, clip *fakeClipboard) *Runti
 
 func buildRemoteMessage(t *testing.T, id string, text string) TopicBusMessage {
 	t.Helper()
+	return buildRemoteMessageOnTopic(t, "clipboard/dev", id, text)
+}
+
+func buildRemoteMessageOnTopic(t *testing.T, topic string, id string, text string) TopicBusMessage {
+	t.Helper()
 	evt, err := NewClipboardTextEventV1(text, BuildEventOptions{
 		OriginNode:       99,
 		OriginInstanceID: "remote-instance",
@@ -672,7 +901,7 @@ func buildRemoteMessage(t *testing.T, id string, text string) TopicBusMessage {
 		t.Fatal(err)
 	}
 	return TopicBusMessage{
-		Topic:   "clipboard/dev",
+		Topic:   topic,
 		Name:    ClipboardTextEventName,
 		Payload: payload,
 	}
