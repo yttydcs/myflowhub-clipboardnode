@@ -402,6 +402,6 @@ List<ClipboardHistoryEntry> appendClipboardHistory(
   );
   return [
     entry,
-    ...state.history,
+    ...state.history.where((existing) => existing.id != entry.id),
   ].take(state.settings.historyLimit).toList(growable: false);
 }

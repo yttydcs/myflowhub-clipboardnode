@@ -47,6 +47,16 @@
 - Change archive: `docs/change/2026-06-04_clipboard-body-history.md`
 - Summary: History now stores and displays bounded local in-memory clipboard text bodies, defaults to `history_retention=body` and `history_limit=256`, while logs/status/transfer remain body-free.
 
+### UI History Settings Polish
+
+- Source branch: direct `master` follow-up after local desktop preview.
+- Requirements impact: none
+- Specs impact: none
+- Lessons impact: updated
+- Change archive: `docs/change/2026-06-04_clipboardnode-ui-history-settings-polish.md`
+- Lesson: `docs/lessons/flutter-switch-hover-state-layer.md`
+- Summary: legacy implicit metadata history configs now load as body history defaults, the history limit setting uses a compact right-aligned control, panel headers/dividers are aligned, preview history ids are stable, and Switch hover feedback uses a smaller state layer with visible alpha.
+
 ## Validation Before Closeout
 
 - `GOWORK=off go test ./... -count=1`: passed in the device identity workflow branch and in the body history workflow branch.
@@ -56,9 +66,14 @@
 - `flutter analyze`: passed after the auth/UI changes, after the header alignment fix, and after the body history changes.
 - `flutter test`: passed after the auth/UI changes, after the header alignment fix, and after the body history changes.
 - `flutter build windows --debug`: passed in the body history workflow branch.
+- `GOWORK=off go test ./core/configstore ./cmd/clipboardnode-bridge ./bridge ./core/runtime -count=1`: passed after the UI history settings polish.
+- `flutter analyze`: passed after the UI history settings polish.
+- `flutter test`: passed after the UI history settings polish.
+- `flutter build windows --debug`: passed after the UI history settings polish.
 - `scripts/validate.ps1 -FlutterBin D:\project\MyFlowHub3\.tmp\tools\flutter-sdk-3.41.9\flutter\bin\flutter.bat`: passed in the device identity workflow branch.
 - Bridge smoke with temporary config/auth data passed for both `device_id` change and display-name-only change.
 - `git diff --check`: passed after docs updates and after the body history archive.
+- `git diff --check`: passed after the UI history settings polish, with CRLF warning noise only.
 
 ## Merge Notes
 
@@ -68,8 +83,8 @@
 
 ## Final Closeout Tasks
 
-- Merge `feat/clipboard-body-history` into local `master`.
-- Run post-merge validation.
-- Remove the dedicated worktree.
-- Delete the local workflow branch after the worktree is removed.
+- Current local branch: `master`.
+- Current latest completed follow-up: UI history settings polish.
+- Run final validation.
+- Commit the UI history settings polish and docs archive.
 - Push `master` to `origin` when network is available.

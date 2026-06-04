@@ -33,11 +33,30 @@ func (s *Store) Load() (coreruntime.Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return coreruntime.Config{}, fmt.Errorf("decode config: %w", err)
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return coreruntime.Config{}, fmt.Errorf("decode config fields: %w", err)
+	}
+	cfg = migrateLegacyHistoryDefaults(cfg, fields)
 	cfg, err = coreruntime.NormalizeConfig(cfg)
 	if err != nil {
 		return coreruntime.Config{}, fmt.Errorf("validate config: %w", err)
 	}
 	return cfg, nil
+}
+
+func migrateLegacyHistoryDefaults(cfg coreruntime.Config, fields map[string]json.RawMessage) coreruntime.Config {
+	if cfg.HistoryRetention != coreruntime.HistoryRetentionMetadata {
+		return cfg
+	}
+	if raw, ok := fields["history_limit"]; ok && string(raw) != "null" {
+		return cfg
+	}
+	cfg.HistoryRetention = coreruntime.HistoryRetentionBody
+	if cfg.HistoryLimit == 0 {
+		cfg.HistoryLimit = coreruntime.DefaultHistoryLimit
+	}
+	return cfg
 }
 
 func (s *Store) Save(cfg coreruntime.Config) error {

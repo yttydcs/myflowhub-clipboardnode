@@ -230,19 +230,27 @@ class _TopBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(section.title, style: title),
-                const SizedBox(height: 4),
-                Text(
-                  state.settings.topic,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+            child: SizedBox(
+              height: 46,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    section.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: title,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    state.settings.topic,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -745,15 +753,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 ),
               ),
               const SizedBox(height: 8),
-              TextField(
+              _HistoryLimitControl(
                 controller: _historyLimit,
                 enabled: settings.historyRetention == HistoryRetention.body,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '历史条数',
-                  prefixIcon: Icon(Icons.format_list_numbered_outlined),
-                  suffixText: '条',
-                ),
               ),
             ],
           ),
@@ -924,27 +926,96 @@ class _Panel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-            child: Row(
-              children: [
-                Icon(icon, size: 20, color: AppColors.teal),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                    overflow: TextOverflow.ellipsis,
+          SizedBox(
+            height: 56,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 20, color: AppColors.teal),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                ?trailing,
-              ],
+                  ?trailing,
+                ],
+              ),
             ),
           ),
-          const Divider(),
+          const _PanelDivider(),
           Padding(padding: const EdgeInsets.all(16), child: child),
         ],
       ),
+    );
+  }
+}
+
+class _PanelDivider extends StatelessWidget {
+  const _PanelDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 1,
+      child: ColoredBox(color: AppColors.border),
+    );
+  }
+}
+
+class _HistoryLimitControl extends StatelessWidget {
+  const _HistoryLimitControl({
+    required this.controller,
+    required this.enabled,
+  });
+
+  final TextEditingController controller;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Row(
+      children: [
+        Icon(
+          Icons.format_list_numbered_outlined,
+          color: enabled ? AppColors.inkMuted : AppColors.border,
+          size: 24,
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            '历史条数',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+        ),
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 148,
+          child: TextField(
+            controller: controller,
+            enabled: enabled,
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.right,
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              suffixText: '条',
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Opacity(opacity: enabled ? 1 : 0.62, child: content),
     );
   }
 }

@@ -98,6 +98,58 @@ func TestStoreSaveLoadKeepsDeviceIDAndDisplayNameSeparate(t *testing.T) {
 	}
 }
 
+func TestStoreLoadMigratesLegacyMetadataHistoryToBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clipboardnode.json")
+	if err := os.WriteFile(
+		path,
+		[]byte(`{"history_retention":"metadata","max_inline_bytes":1024}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.HistoryRetention != coreruntime.HistoryRetentionBody {
+		t.Fatalf("history_retention = %q", loaded.HistoryRetention)
+	}
+	if loaded.HistoryLimit != coreruntime.DefaultHistoryLimit {
+		t.Fatalf("history_limit = %d", loaded.HistoryLimit)
+	}
+}
+
+func TestStoreLoadPreservesExplicitMetadataHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clipboardnode.json")
+	store, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := coreruntime.Config{
+		ParentEndpoint:   "127.0.0.1:9000",
+		MaxInlineBytes:   1024,
+		HistoryRetention: coreruntime.HistoryRetentionMetadata,
+		HistoryLimit:     32,
+	}
+	if err := store.Save(cfg); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.HistoryRetention != coreruntime.HistoryRetentionMetadata {
+		t.Fatalf("history_retention = %q", loaded.HistoryRetention)
+	}
+	if loaded.HistoryLimit != 32 {
+		t.Fatalf("history_limit = %d", loaded.HistoryLimit)
+	}
+}
+
 func TestStoreRejectsEnabledEmptyTopic(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "clipboardnode.json"))
 	if err != nil {

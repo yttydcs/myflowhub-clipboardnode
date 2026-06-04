@@ -57,6 +57,7 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
   final StreamController<ClipboardEngineState> _states =
       StreamController<ClipboardEngineState>.broadcast(sync: true);
   ClipboardEngineState _state;
+  int _activitySeq = 0;
 
   @override
   ClipboardEngineState get currentState => _state;
@@ -195,8 +196,9 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
       );
       return;
     }
+    final activitySeq = ++_activitySeq;
     final activity = ClipboardActivity(
-      id: 'preview-${now.microsecondsSinceEpoch}',
+      id: 'preview-${now.microsecondsSinceEpoch}-$activitySeq',
       kind: ActivityKind.published,
       title: '已发布文本',
       detail: 'TopicBus 本地发布状态',

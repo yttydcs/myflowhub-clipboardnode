@@ -4,6 +4,7 @@ Reusable lessons for ClipboardNode workflows.
 
 ## Current
 
+- [flutter-switch-hover-state-layer.md](flutter-switch-hover-state-layer.md) - Oversized Flutter Switch hover requires tuning `splashRadius`, tap target/padding, and overlay alpha together; opacity alone does not reduce the state layer bounds.
 - [device-id-auth-snapshot-mismatch.md](device-id-auth-snapshot-mismatch.md) - Changing ClipboardNode `device_id` must clear stale auth snapshot state; display-name-only edits should not reset node identity.
 - [startup-subscribe-timeout-half-connected.md](startup-subscribe-timeout-half-connected.md) - Startup subscribe timeout with a local node id can come from stale persisted `logged_in=true`; re-login on fresh TCP sessions and close transport after failed startup.
 - [gomobile-mobile-bindings.md](gomobile-mobile-bindings.md) - gomobile AAR/XCFramework live mobile proof requires pinned generation, artifact/class/module verification, Android minSdk alignment, and explicit stubs when bindings are absent.

@@ -50,8 +50,23 @@ void main() {
     );
     expect(switchTheme.thumbColor?.resolve({}), AppColors.switchOffThumb);
     expect(switchTheme.trackColor?.resolve({}), AppColors.switchOffTrack);
+    expect(
+      switchTheme.trackColor?.resolve({WidgetState.hovered}),
+      AppColors.tealSoft,
+    );
     expect(switchTheme.trackOutlineColor?.resolve({}), AppColors.border);
     expect(switchTheme.trackOutlineWidth?.resolve({}), 1);
+    expect(switchTheme.materialTapTargetSize, MaterialTapTargetSize.shrinkWrap);
+    expect(switchTheme.splashRadius, 14);
+    expect(switchTheme.padding, EdgeInsets.zero);
+    expect(
+      switchTheme.overlayColor?.resolve({WidgetState.hovered}),
+      AppColors.teal.withValues(alpha: 0.12),
+    );
+    expect(
+      switchTheme.overlayColor?.resolve({WidgetState.focused}),
+      AppColors.teal.withValues(alpha: 0.14),
+    );
     expect(
       theme.textTheme.bodyMedium?.fontFamilyFallback,
       contains('Microsoft YaHei UI'),

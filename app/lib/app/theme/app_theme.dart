@@ -98,6 +98,9 @@ abstract final class AppTheme {
         ),
       ),
       switchTheme: SwitchThemeData(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        splashRadius: 14,
+        padding: EdgeInsets.zero,
         thumbColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.disabled)) {
             return states.contains(WidgetState.selected)
@@ -114,8 +117,15 @@ abstract final class AppTheme {
                 ? AppColors.tealSoft
                 : AppColors.surfaceMuted;
           }
-          return states.contains(WidgetState.selected)
-              ? AppColors.teal
+          if (states.contains(WidgetState.selected)) {
+            return states.contains(WidgetState.hovered) ||
+                    states.contains(WidgetState.focused)
+                ? const Color(0xFF1E8A7F)
+                : AppColors.teal;
+          }
+          return states.contains(WidgetState.hovered) ||
+                  states.contains(WidgetState.focused)
+              ? AppColors.tealSoft
               : AppColors.switchOffTrack;
         }),
         trackOutlineColor: WidgetStateProperty.resolveWith((states) {
@@ -127,10 +137,14 @@ abstract final class AppTheme {
           return states.contains(WidgetState.selected) ? 0 : 1;
         }),
         overlayColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.pressed) ||
-              states.contains(WidgetState.hovered) ||
-              states.contains(WidgetState.focused)) {
-            return AppColors.tealSoft;
+          if (states.contains(WidgetState.pressed)) {
+            return AppColors.teal.withValues(alpha: 0.18);
+          }
+          if (states.contains(WidgetState.focused)) {
+            return AppColors.teal.withValues(alpha: 0.14);
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return AppColors.teal.withValues(alpha: 0.12);
           }
           return Colors.transparent;
         }),
