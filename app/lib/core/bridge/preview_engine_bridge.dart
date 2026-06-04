@@ -129,13 +129,10 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
   @override
   Future<void> updateSettings(ClipboardSettings settings) async {
     final normalizedParentEndpoint = settings.parentEndpoint.trim();
-    final normalizedTopic = settings.topic.trim();
     if (normalizedParentEndpoint.isEmpty) {
       throw StateError('父节点地址不能为空');
     }
-    if (settings.enabled && normalizedTopic.isEmpty) {
-      throw StateError('启用同步时必须填写 Topic');
-    }
+    final normalizedTopics = normalizeTopicSyncConfigs(settings.topics);
     if (settings.maxInlineBytes <= 0) {
       throw StateError('内联文本上限必须大于 0');
     }
@@ -148,7 +145,8 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
         : settings.displayName.trim();
     final next = settings.copyWith(
       parentEndpoint: normalizedParentEndpoint,
-      topic: normalizedTopic,
+      topic: primaryTopic(normalizedTopics),
+      topics: normalizedTopics,
       deviceId: normalizedDeviceId,
       displayName: normalizedDisplayName,
       deviceLabel: normalizedDisplayName,
@@ -201,7 +199,8 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
       id: 'preview-${now.microsecondsSinceEpoch}-$activitySeq',
       kind: ActivityKind.published,
       title: '已发布文本',
-      detail: 'TopicBus 本地发布状态',
+      detail: 'TopicBus: ${_state.settings.topic}',
+      topic: _state.settings.topic,
       deviceLabel: _state.settings.displayName,
       byteSize: byteSize,
       hashPrefix: hashPrefix.substring(hashPrefix.length - 12),
@@ -230,6 +229,19 @@ class PreviewEngineBridge implements ClipboardEngineBridge {
       throw StateError('没有可应用的待接收事件');
     }
     _emit(_state.copyWith(clearPendingEvent: true, lastError: ''));
+  }
+
+  @override
+  Future<void> restoreHistory(ClipboardHistoryEntry entry) async {
+    if (entry.text.isEmpty) {
+      throw StateError('剪贴板历史正文不能为空');
+    }
+    _emit(
+      _state.copyWith(
+        history: promoteClipboardHistoryEntry(_state, entry),
+        lastError: '',
+      ),
+    );
   }
 
   @override

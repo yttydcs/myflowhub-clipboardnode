@@ -17,6 +17,8 @@ abstract interface class ClipboardEngineBridge {
 
   Future<void> applyPending(String eventId);
 
+  Future<void> restoreHistory(ClipboardHistoryEntry entry);
+
   Future<void> clearRecent();
 
   Future<void> dispose();

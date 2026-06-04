@@ -244,7 +244,9 @@ class _TopBar extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    state.settings.topic,
+                    state.settings.topics.length == 1
+                        ? state.settings.topic
+                        : '${state.settings.topic} +${state.settings.topics.length - 1}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -495,7 +497,7 @@ class _SendSectionState extends State<_SendSection> {
                     ? null
                     : () => widget.controller.sendText(_text.text),
                 icon: const Icon(Icons.send, size: 18),
-                label: const Text('发送到 Topic'),
+                label: const Text('发送到订阅'),
               ),
               OutlinedButton.icon(
                 onPressed: widget.state.capability.manualSend
@@ -540,7 +542,7 @@ class _SettingsSection extends StatefulWidget {
 
 class _SettingsSectionState extends State<_SettingsSection> {
   late final TextEditingController _parentEndpoint;
-  late final TextEditingController _topic;
+  late List<_TopicRowController> _topics;
   late final TextEditingController _deviceId;
   late final TextEditingController _displayName;
   late final TextEditingController _maxInlineBytes;
@@ -553,7 +555,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
     super.initState();
     final settings = widget.state.settings;
     _parentEndpoint = TextEditingController(text: settings.parentEndpoint);
-    _topic = TextEditingController(text: settings.topic);
+    _topics = _topicControllers(settings.topics);
     _deviceId = TextEditingController(text: settings.deviceId);
     _displayName = TextEditingController(text: settings.displayName);
     _maxInlineBytes = TextEditingController(
@@ -571,7 +573,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.state.settings != widget.state.settings) {
       _syncController(_parentEndpoint, widget.state.settings.parentEndpoint);
-      _syncController(_topic, widget.state.settings.topic);
+      _syncTopicControllers(widget.state.settings.topics);
       _syncController(_deviceId, widget.state.settings.deviceId);
       _syncController(_displayName, widget.state.settings.displayName);
       _syncController(
@@ -593,7 +595,9 @@ class _SettingsSectionState extends State<_SettingsSection> {
   @override
   void dispose() {
     _parentEndpoint.dispose();
-    _topic.dispose();
+    for (final topic in _topics) {
+      topic.dispose();
+    }
     _deviceId.dispose();
     _displayName.dispose();
     _maxInlineBytes.dispose();
@@ -634,13 +638,6 @@ class _SettingsSectionState extends State<_SettingsSection> {
                     ),
                   ),
                   TextField(
-                    controller: _topic,
-                    decoration: const InputDecoration(
-                      labelText: 'Topic',
-                      prefixIcon: Icon(Icons.tag_outlined),
-                    ),
-                  ),
-                  TextField(
                     controller: _deviceId,
                     decoration: const InputDecoration(
                       labelText: '设备 ID',
@@ -678,6 +675,13 @@ class _SettingsSectionState extends State<_SettingsSection> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              _TopicRoutesEditor(
+                routes: _topics,
+                onChanged: () => setState(() {}),
+                onAdd: _addTopic,
+                onRemove: _removeTopic,
               ),
               const SizedBox(height: 14),
               Align(
@@ -794,7 +798,16 @@ class _SettingsSectionState extends State<_SettingsSection> {
     await _update(
       widget.state.settings.copyWith(
         parentEndpoint: _parentEndpoint.text,
-        topic: _topic.text,
+        topic: _topics.firstOrNull?.controller.text ?? '',
+        topics: _topics
+            .map(
+              (route) => TopicSyncConfig(
+                topic: route.controller.text,
+                syncToLocal: route.syncToLocal,
+                syncFromLocal: route.syncFromLocal,
+              ),
+            )
+            .toList(growable: false),
         deviceId: nextDeviceId,
         displayName: nextDisplayName,
         deviceLabel: nextDisplayName,
@@ -808,6 +821,87 @@ class _SettingsSectionState extends State<_SettingsSection> {
 
   Future<void> _update(ClipboardSettings settings) {
     return widget.controller.updateSettings(settings);
+  }
+
+  List<_TopicRowController> _topicControllers(List<TopicSyncConfig> routes) {
+    return [
+      for (final route in routes)
+        _TopicRowController(
+          controller: TextEditingController(text: route.topic),
+          syncToLocal: route.syncToLocal,
+          syncFromLocal: route.syncFromLocal,
+        ),
+    ];
+  }
+
+  void _syncTopicControllers(List<TopicSyncConfig> routes) {
+    final current = [
+      for (final route in _topics)
+        TopicSyncConfig(
+          topic: route.controller.text,
+          syncToLocal: route.syncToLocal,
+          syncFromLocal: route.syncFromLocal,
+        ),
+    ];
+    if (_sameTopicRoutes(current, routes)) {
+      return;
+    }
+    for (final topic in _topics) {
+      topic.dispose();
+    }
+    _topics = _topicControllers(routes);
+  }
+
+  bool _sameTopicRoutes(List<TopicSyncConfig> a, List<TopicSyncConfig> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].topic != b[i].topic ||
+          a[i].syncToLocal != b[i].syncToLocal ||
+          a[i].syncFromLocal != b[i].syncFromLocal) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _addTopic() {
+    setState(() {
+      _topics.add(
+        _TopicRowController(
+          controller: TextEditingController(),
+          syncToLocal: true,
+          syncFromLocal: true,
+        ),
+      );
+    });
+  }
+
+  void _removeTopic(_TopicRowController route) {
+    if (_topics.length <= 1) {
+      return;
+    }
+    setState(() {
+      _topics.remove(route);
+      route.dispose();
+    });
+  }
+}
+
+class _TopicRowController {
+  _TopicRowController({
+    required this.controller,
+    required this.syncToLocal,
+    required this.syncFromLocal,
+  });
+
+  final TextEditingController controller;
+  bool syncToLocal;
+  bool syncFromLocal;
+
+  void dispose() {
+    controller.dispose();
   }
 }
 
@@ -841,7 +935,10 @@ class _ClipboardHistorySection extends StatelessWidget {
           : Column(
               children: [
                 for (final entry in state.history) ...[
-                  _ClipboardHistoryTile(entry: entry),
+                  _ClipboardHistoryTile(
+                    entry: entry,
+                    onRestore: () => controller.restoreHistory(entry),
+                  ),
                   if (entry != state.history.last) const Divider(),
                 ],
               ],
@@ -897,6 +994,166 @@ class _LogSection extends StatelessWidget {
                 ],
               ],
             ),
+    );
+  }
+}
+
+class _TopicRoutesEditor extends StatelessWidget {
+  const _TopicRoutesEditor({
+    required this.routes,
+    required this.onChanged,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<_TopicRowController> routes;
+  final VoidCallback onChanged;
+  final VoidCallback onAdd;
+  final ValueChanged<_TopicRowController> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.topic_outlined, size: 20, color: AppColors.teal),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Topic 订阅',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: routes.length >= ClipboardTopicLimits.maxTopics
+                  ? null
+                  : onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('添加'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        for (final route in routes) ...[
+          _TopicRouteTile(
+            route: route,
+            canRemove: routes.length > 1,
+            onChanged: onChanged,
+            onRemove: () => onRemove(route),
+          ),
+          if (route != routes.last) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _TopicRouteTile extends StatelessWidget {
+  const _TopicRouteTile({
+    required this.route,
+    required this.canRemove,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final _TopicRowController route;
+  final bool canRemove;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceMuted,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 760;
+            final field = TextField(
+              controller: route.controller,
+              onChanged: (_) => onChanged(),
+              decoration: const InputDecoration(
+                labelText: 'Topic',
+                prefixIcon: Icon(Icons.tag_outlined),
+                hintText: ClipboardTopicLimits.defaultTopic,
+              ),
+            );
+            final controls = Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _DirectionToggle(
+                  icon: Icons.south_west,
+                  label: '到本机',
+                  value: route.syncToLocal,
+                  onChanged: (value) {
+                    route.syncToLocal = value;
+                    onChanged();
+                  },
+                ),
+                _DirectionToggle(
+                  icon: Icons.north_east,
+                  label: '从本机',
+                  value: route.syncFromLocal,
+                  onChanged: (value) {
+                    route.syncFromLocal = value;
+                    onChanged();
+                  },
+                ),
+                IconButton.filledTonal(
+                  onPressed: canRemove ? onRemove : null,
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: '删除 Topic',
+                ),
+              ],
+            );
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [field, const SizedBox(height: 10), controls],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: field),
+                const SizedBox(width: 12),
+                controls,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _DirectionToggle extends StatelessWidget {
+  const _DirectionToggle({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      selected: value,
+      onSelected: onChanged,
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
+      showCheckmark: false,
     );
   }
 }
@@ -969,10 +1226,7 @@ class _PanelDivider extends StatelessWidget {
 }
 
 class _HistoryLimitControl extends StatelessWidget {
-  const _HistoryLimitControl({
-    required this.controller,
-    required this.enabled,
-  });
+  const _HistoryLimitControl({required this.controller, required this.enabled});
 
   final TextEditingController controller;
   final bool enabled;
@@ -1169,99 +1423,88 @@ class _FormGrid extends StatelessWidget {
 }
 
 class _ClipboardHistoryTile extends StatelessWidget {
-  const _ClipboardHistoryTile({required this.entry});
+  const _ClipboardHistoryTile({required this.entry, required this.onRestore});
 
   final ClipboardHistoryEntry entry;
+  final VoidCallback onRestore;
 
   @override
   Widget build(BuildContext context) {
-    final tone = switch (entry.kind) {
-      ActivityKind.published => _Tone.success,
-      ActivityKind.applied => _Tone.info,
-      ActivityKind.pending => _Tone.warning,
-      ActivityKind.ignored => _Tone.muted,
-      ActivityKind.error => _Tone.error,
-    };
+    const tone = _Tone.info;
     final colors = _toneColors(tone);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: colors.background,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  _activityIcon(entry.kind),
-                  color: colors.foreground,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onRestore,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      _historyTitle(entry.kind),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium,
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: colors.background,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.content_paste_go_outlined,
+                        color: colors.foreground,
+                        size: 20,
+                      ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${_formatHistoryTime(entry.timestamp)} · ${entry.deviceLabel} · ${entry.byteSize} B',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        entry.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Icon(
+                      Icons.keyboard_return,
+                      color: AppColors.inkMuted,
+                      size: 19,
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                constraints: const BoxConstraints(maxWidth: 120),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceMuted,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    entry.text,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                 ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceMuted,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  entry.hashPrefix.isEmpty ? '-' : entry.hashPrefix,
+                const SizedBox(height: 8),
+                Text(
+                  '${_formatHistoryTime(entry.timestamp)} · ${entry.topic.isEmpty ? '-' : entry.topic} · ${entry.byteSize} B · ${entry.hashPrefix.isEmpty ? '-' : entry.hashPrefix}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceMuted,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              entry.text,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium,
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1643,7 +1886,7 @@ class _ProtocolBadge extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'clipboard.text.v1',
+              ClipboardTopicLimits.defaultTopic,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1778,16 +2021,6 @@ IconData _activityIcon(ActivityKind kind) {
     ActivityKind.pending => Icons.pending_actions,
     ActivityKind.ignored => Icons.block,
     ActivityKind.error => Icons.error_outline,
-  };
-}
-
-String _historyTitle(ActivityKind kind) {
-  return switch (kind) {
-    ActivityKind.published => '已发送到 Topic',
-    ActivityKind.applied => '已应用到本机剪贴板',
-    ActivityKind.pending => '等待处理的剪贴板内容',
-    ActivityKind.ignored => '已忽略的剪贴板事件',
-    ActivityKind.error => '剪贴板同步失败',
   };
 }
 

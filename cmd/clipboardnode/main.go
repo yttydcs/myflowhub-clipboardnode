@@ -60,8 +60,8 @@ func run() error {
 	defer stop()
 
 	fmt.Printf("ClipboardNode config loaded from %s\n", *configFile)
-	fmt.Printf("parent_endpoint=%q topic=%q enabled=%t auto_watch=%t auto_apply=%t max_inline_bytes=%d\n",
-		cfg.ParentEndpoint, cfg.Topic, cfg.Enabled, cfg.AutoWatch, cfg.AutoApply, cfg.MaxInlineBytes)
+	fmt.Printf("parent_endpoint=%q topic=%q topics=%d enabled=%t auto_watch=%t auto_apply=%t max_inline_bytes=%d\n",
+		cfg.ParentEndpoint, cfg.Topic, len(cfg.Topics), cfg.Enabled, cfg.AutoWatch, cfg.AutoApply, cfg.MaxInlineBytes)
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}
@@ -73,8 +73,8 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("manual send action=%s event_id=%s size=%d hash=%s\n",
-			decision.Action, decision.EventID, decision.Size, decision.HashPrefix)
+		fmt.Printf("manual send action=%s topic=%q event_id=%s size=%d hash=%s\n",
+			decision.Action, decision.Topic, decision.EventID, decision.Size, decision.HashPrefix)
 		return nil
 	}
 	fmt.Println("ClipboardNode running; press Ctrl+C to stop.")

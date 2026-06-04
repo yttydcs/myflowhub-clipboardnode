@@ -4,6 +4,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
 
+import 'package:flutter/services.dart';
+
 import 'engine_bridge.dart';
 import 'engine_contract.dart';
 
@@ -82,18 +84,19 @@ class WebEngineBridge implements ClipboardEngineBridge {
   @override
   Future<void> updateSettings(ClipboardSettings settings) async {
     final endpoint = settings.parentEndpoint.trim();
-    final topic = settings.topic.trim();
     if (endpoint.isEmpty) {
       throw StateError('父节点地址不能为空');
     }
-    if (settings.enabled && topic.isEmpty) {
-      throw StateError('启用同步时必须填写 Topic');
-    }
+    final normalizedTopics = normalizeTopicSyncConfigs(settings.topics);
     if (settings.maxInlineBytes <= 0) {
       throw StateError('内联文本上限必须大于 0');
     }
     validateHistoryLimit(settings.historyLimit);
-    final next = settings.copyWith(parentEndpoint: endpoint, topic: topic);
+    final next = settings.copyWith(
+      parentEndpoint: endpoint,
+      topic: primaryTopic(normalizedTopics),
+      topics: normalizedTopics,
+    );
     _emit(
       _state.copyWith(
         settings: next,
@@ -125,6 +128,24 @@ class WebEngineBridge implements ClipboardEngineBridge {
       throw StateError('待应用事件 ID 不能为空');
     }
     await _send(EngineActions.applyEvent, {'event_id': eventId.trim()});
+  }
+
+  @override
+  Future<void> restoreHistory(ClipboardHistoryEntry entry) async {
+    if (entry.text.isEmpty) {
+      throw StateError('剪贴板历史正文不能为空');
+    }
+    await Clipboard.setData(ClipboardData(text: entry.text));
+    if (_events != null) {
+      await _send(EngineActions.restoreHistory, entry.toJson());
+      return;
+    }
+    _emit(
+      _state.copyWith(
+        history: promoteClipboardHistoryEntry(_state, entry),
+        lastError: '',
+      ),
+    );
   }
 
   @override
@@ -215,6 +236,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
               if (status is Map<String, Object?>) {
                 _applyStatus(status);
               }
+              _applyHistory(decoded['history']);
               if (decoded['ok'] == false) {
                 final message =
                     decoded['error'] as String? ?? 'web bridge command failed';
@@ -224,6 +246,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
             }
           }
           await _fetchStatus();
+          await _fetchHistory();
           _complete(id, null);
         })
         .catchError((Object error) {
@@ -254,6 +277,19 @@ class WebEngineBridge implements ClipboardEngineBridge {
     }
   }
 
+  Future<void> _fetchHistory() async {
+    final response = await html.HttpRequest.request(
+      '$_endpoint/history',
+      method: 'GET',
+      requestHeaders: {'X-ClipboardNode-Token': _token},
+    );
+    final text = response.responseText;
+    if (text == null || text.trim().isEmpty) {
+      return;
+    }
+    _applyHistory(jsonDecode(text));
+  }
+
   void _handleLine(String line) {
     final decoded = jsonDecode(line);
     if (decoded is! Map<String, Object?>) {
@@ -281,6 +317,8 @@ class WebEngineBridge implements ClipboardEngineBridge {
         }
       case EngineEvents.transferUpdated:
         _applyTransfer(data);
+      case EngineEvents.historyUpdated:
+        _applyHistory(rawData);
       case EngineEvents.error:
         _emit(_state.copyWith(busy: false, lastError: error));
     }
@@ -288,11 +326,18 @@ class WebEngineBridge implements ClipboardEngineBridge {
   }
 
   void _applyStatus(Map<String, Object?> data) {
+    final parsedTopics = parseTopicSyncConfigs(
+      data['topics'],
+      data['topic'] as String? ?? _state.settings.topic,
+      _state.settings.topics,
+    );
+    final normalizedTopics = normalizeTopicSyncConfigs(parsedTopics);
     final settings = _state.settings.copyWith(
       enabled: data['enabled'] as bool? ?? _state.settings.enabled,
       parentEndpoint:
           data['parent_endpoint'] as String? ?? _state.settings.parentEndpoint,
-      topic: data['topic'] as String? ?? _state.settings.topic,
+      topic: data['topic'] as String? ?? primaryTopic(normalizedTopics),
+      topics: normalizedTopics,
       deviceId:
           data['device_id'] as String? ??
           data['device_label'] as String? ??
@@ -326,6 +371,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
         ? null
         : PendingClipboardEvent(
             eventId: pendingEventId,
+            topic: data['pending_topic'] as String? ?? '',
             byteSize: (data['pending_size'] as num?)?.toInt() ?? 0,
             hashPrefix: data['pending_hash_prefix'] as String? ?? '',
           );
@@ -367,6 +413,7 @@ class WebEngineBridge implements ClipboardEngineBridge {
       kind: kind,
       title: data['title'] as String? ?? kind.name,
       detail: data['detail'] as String? ?? 'TopicBus',
+      topic: data['topic'] as String? ?? '',
       deviceLabel:
           data['device_label'] as String? ?? _state.settings.displayName,
       byteSize: (data['byte_size'] as num?)?.toInt() ?? 0,
@@ -399,6 +446,15 @@ class WebEngineBridge implements ClipboardEngineBridge {
           hashPrefix: data['hash_prefix'] as String? ?? '',
           detail: data['detail'] as String? ?? 'clipboard.transfer.v1',
         ),
+      ),
+    );
+  }
+
+  void _applyHistory(Object? data) {
+    _emit(
+      _state.copyWith(
+        history: parseClipboardHistoryEntries(data, _state.settings),
+        lastError: '',
       ),
     );
   }

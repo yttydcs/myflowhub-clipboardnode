@@ -3,17 +3,19 @@ package bridge
 import "encoding/json"
 
 const (
-	ActionConnect       = "connect"
-	ActionSetConfig     = "set_config"
-	ActionSendText      = "send_text"
-	ActionReadClipboard = "read_clipboard"
-	ActionApplyEvent    = "apply_event"
-	ActionClearRecent   = "clear_recent"
-	ActionShutdown      = "shutdown"
+	ActionConnect        = "connect"
+	ActionSetConfig      = "set_config"
+	ActionSendText       = "send_text"
+	ActionReadClipboard  = "read_clipboard"
+	ActionApplyEvent     = "apply_event"
+	ActionClearRecent    = "clear_recent"
+	ActionRestoreHistory = "restore_history"
+	ActionShutdown       = "shutdown"
 
 	EventStatusChanged   = "status.changed"
 	EventActivityUpdated = "activity.updated"
 	EventTransferUpdate  = "transfer.updated"
+	EventHistoryUpdated  = "history.updated"
 	EventClipboardRecv   = "clipboard.received"
 	EventError           = "error"
 )
@@ -32,50 +34,59 @@ type EngineEvent struct {
 	Error string          `json:"error,omitempty"`
 }
 
+type TopicRoute struct {
+	Topic         string `json:"topic"`
+	SyncToLocal   bool   `json:"sync_to_local"`
+	SyncFromLocal bool   `json:"sync_from_local"`
+}
+
 type Settings struct {
-	Enabled          bool   `json:"enabled"`
-	ParentEndpoint   string `json:"parent_endpoint"`
-	Topic            string `json:"topic"`
-	DeviceID         string `json:"device_id,omitempty"`
-	DisplayName      string `json:"display_name,omitempty"`
-	DeviceLabel      string `json:"device_label,omitempty"`
-	MaxInlineBytes   int    `json:"max_inline_bytes"`
-	AutoWatch        bool   `json:"auto_watch"`
-	AutoApply        bool   `json:"auto_apply"`
-	HistoryRetention string `json:"history_retention"`
-	HistoryLimit     int    `json:"history_limit"`
-	TransferProvider string `json:"transfer_provider,omitempty"`
-	TransferRef      string `json:"transfer_ref,omitempty"`
+	Enabled          bool         `json:"enabled"`
+	ParentEndpoint   string       `json:"parent_endpoint"`
+	Topic            string       `json:"topic"`
+	Topics           []TopicRoute `json:"topics,omitempty"`
+	DeviceID         string       `json:"device_id,omitempty"`
+	DisplayName      string       `json:"display_name,omitempty"`
+	DeviceLabel      string       `json:"device_label,omitempty"`
+	MaxInlineBytes   int          `json:"max_inline_bytes"`
+	AutoWatch        bool         `json:"auto_watch"`
+	AutoApply        bool         `json:"auto_apply"`
+	HistoryRetention string       `json:"history_retention"`
+	HistoryLimit     int          `json:"history_limit"`
+	TransferProvider string       `json:"transfer_provider,omitempty"`
+	TransferRef      string       `json:"transfer_ref,omitempty"`
 }
 
 type Status struct {
-	Connected        bool   `json:"connected"`
-	LoggedIn         bool   `json:"logged_in"`
-	NodeID           uint32 `json:"node_id,omitempty"`
-	HubID            uint32 `json:"hub_id,omitempty"`
-	ParentEndpoint   string `json:"parent_endpoint"`
-	Enabled          bool   `json:"enabled"`
-	Topic            string `json:"topic"`
-	DeviceID         string `json:"device_id,omitempty"`
-	DisplayName      string `json:"display_name,omitempty"`
-	DeviceLabel      string `json:"device_label,omitempty"`
-	AutoWatch        bool   `json:"auto_watch"`
-	AutoApply        bool   `json:"auto_apply"`
-	HistoryRetention string `json:"history_retention"`
-	HistoryLimit     int    `json:"history_limit"`
-	TransferProvider string `json:"transfer_provider,omitempty"`
-	TransferRef      string `json:"transfer_ref,omitempty"`
-	Started          bool   `json:"started"`
-	Subscribed       bool   `json:"subscribed"`
-	Watching         bool   `json:"watching"`
-	PendingEventID   string `json:"pending_event_id,omitempty"`
-	PendingSize      int    `json:"pending_size,omitempty"`
-	PendingHash      string `json:"pending_hash_prefix,omitempty"`
-	LastAction       string `json:"last_action,omitempty"`
-	LastEventID      string `json:"last_event_id,omitempty"`
-	LastSize         int    `json:"last_size,omitempty"`
-	LastHashPrefix   string `json:"last_hash_prefix,omitempty"`
-	LastError        string `json:"last_error,omitempty"`
+	Connected        bool         `json:"connected"`
+	LoggedIn         bool         `json:"logged_in"`
+	NodeID           uint32       `json:"node_id,omitempty"`
+	HubID            uint32       `json:"hub_id,omitempty"`
+	ParentEndpoint   string       `json:"parent_endpoint"`
+	Enabled          bool         `json:"enabled"`
+	Topic            string       `json:"topic"`
+	Topics           []TopicRoute `json:"topics,omitempty"`
+	DeviceID         string       `json:"device_id,omitempty"`
+	DisplayName      string       `json:"display_name,omitempty"`
+	DeviceLabel      string       `json:"device_label,omitempty"`
+	AutoWatch        bool         `json:"auto_watch"`
+	AutoApply        bool         `json:"auto_apply"`
+	HistoryRetention string       `json:"history_retention"`
+	HistoryLimit     int          `json:"history_limit"`
+	TransferProvider string       `json:"transfer_provider,omitempty"`
+	TransferRef      string       `json:"transfer_ref,omitempty"`
+	Started          bool         `json:"started"`
+	Subscribed       bool         `json:"subscribed"`
+	Watching         bool         `json:"watching"`
+	PendingEventID   string       `json:"pending_event_id,omitempty"`
+	PendingTopic     string       `json:"pending_topic,omitempty"`
+	PendingSize      int          `json:"pending_size,omitempty"`
+	PendingHash      string       `json:"pending_hash_prefix,omitempty"`
+	LastAction       string       `json:"last_action,omitempty"`
+	LastEventID      string       `json:"last_event_id,omitempty"`
+	LastSize         int          `json:"last_size,omitempty"`
+	LastHashPrefix   string       `json:"last_hash_prefix,omitempty"`
+	LastError        string       `json:"last_error,omitempty"`
 }
 
 type Activity struct {
@@ -83,11 +94,23 @@ type Activity struct {
 	Kind        string `json:"kind"`
 	Title       string `json:"title"`
 	Detail      string `json:"detail"`
+	Topic       string `json:"topic,omitempty"`
 	DeviceLabel string `json:"device_label,omitempty"`
 	ByteSize    int    `json:"byte_size"`
 	HashPrefix  string `json:"hash_prefix,omitempty"`
 	TimestampMS int64  `json:"timestamp_ms"`
 	Text        string `json:"text,omitempty"`
+}
+
+type HistoryEntry struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Text        string `json:"text"`
+	Topic       string `json:"topic,omitempty"`
+	DeviceLabel string `json:"device_label,omitempty"`
+	ByteSize    int    `json:"byte_size"`
+	HashPrefix  string `json:"hash_prefix,omitempty"`
+	TimestampMS int64  `json:"timestamp_ms"`
 }
 
 type Transfer struct {
