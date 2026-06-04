@@ -95,6 +95,8 @@ The default security model is the private MyFlowHub topology plus authenticated 
 
 - Android host, share-sheet integration, foreground notification/service where appropriate, permission/lifecycle handling, and clipboard adapter.
 - Must not rely on unrestricted background clipboard watching.
+- Android `auto_watch` is a foreground app policy. When enabled through the live mobile bridge, Kotlin registers an Android `ClipboardManager` primary-clip listener while ClipboardNode is started, forwards text into the gomobile manual clipboard adapter, and lets the existing runtime publish through configured `sync_from_local` topic routes.
+- Android `auto_apply` writes accepted remote text to the Android system clipboard through the Kotlin platform channel after the Go runtime has accepted the event. This does not imply background clipboard access or server-side delivery acknowledgement.
 
 ### `ios`
 
@@ -132,7 +134,7 @@ The default security model is the private MyFlowHub topology plus authenticated 
 
 ### Local Clipboard To TopicBus
 
-1. Desktop adapter emits local text automatically, or mobile/manual UI sends current/shared text.
+1. Desktop adapter emits local text automatically, Android foreground listener or mobile/manual UI sends current/shared text.
 2. Runtime checks enabled state.
 3. Runtime normalizes text, computes UTF-8 byte length, and rejects empty or oversize input.
 4. Runtime computes SHA-256.
@@ -154,7 +156,7 @@ The default security model is the private MyFlowHub topology plus authenticated 
 5. Runtime validates payload version, identity fields, and text.
 6. Runtime computes UTF-8 byte size and SHA-256 from the text.
 7. Runtime ignores local-origin or duplicate events.
-8. Runtime either writes text through the platform adapter or records the event as pending when auto-apply is off.
+8. Runtime either writes text through the platform adapter or records the event as pending when auto-apply is off. Android live mobile uses a gomobile manual adapter internally, then the Kotlin channel writes accepted applied text to the Android system clipboard.
 9. Runtime records the write hash/event ID to suppress loops after successful local apply.
 10. Runtime emits a pending/applied decision with topic metadata. Applied decisions may include in-memory text for bridge-side body history when enabled; pending decisions remain metadata-only at the bridge boundary.
 
@@ -284,7 +286,7 @@ Pending status should include only the pending event ID, topic, size, and hash p
 
 ### UI Activity And Body History
 
-Bridge activity events are metadata records by default. They must include topic metadata when available. They may include an optional `text` field only when normalized local config has `history_retention=body` and the runtime decision came from a successful inline text publish or apply path. Pending receive activity remains metadata-only until the user or auto-apply path writes the text to the local clipboard. UI code must store body text only in the bounded body history list and must keep activity/log views metadata-only.
+Bridge activity events are metadata records by default. They must include topic metadata when available. They may include an optional `text` field only when normalized local config has `history_retention=body` and the runtime decision came from a successful inline text publish or apply path. Pending receive activity remains metadata-only until the user or auto-apply path writes the text to the local clipboard. UI code must store body text only in the bounded body history list and must keep activity/log views metadata-only. Mobile MethodChannel decision responses may carry the same scoped text only for local-published and remote-applied decisions; status, config, transfer, and pending metadata remain body-free.
 
 ### Bridge History Contract
 
@@ -345,6 +347,7 @@ The manifest is a ClipboardNode application payload. It must not require a Topic
 - Clipboard adapter failure: report error and do not mark the event as applied.
 - Runtime shutdown: cancel watcher, unsubscribe best-effort, and close platform adapter.
 - Mobile background clipboard access unavailable: present manual/share actions rather than reporting a fatal app error.
+- Android foreground listener unavailable or gomobile binding missing: keep the explicit stub/native binding error visible and do not claim live automatic sync.
 - Existing transfer protocol unavailable for large content: reject the transfer and show a UI-safe error without logging the body.
 - Private topology assumption does not hold: require deployment guidance or future application-layer encryption; do not silently claim E2EE.
 

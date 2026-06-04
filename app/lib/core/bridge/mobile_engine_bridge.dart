@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 
@@ -8,14 +9,58 @@ import 'engine_contract.dart';
 import 'preview_engine_bridge.dart';
 
 class MobileEngineBridge implements ClipboardEngineBridge {
-  MobileEngineBridge() : this._(PreviewEngineBridge());
+  MobileEngineBridge() : this._(PreviewEngineBridge(), _capability());
 
-  MobileEngineBridge._(this._fallback)
-    : _state = _fallback.currentState.copyWith(previewMode: false);
+  MobileEngineBridge._(this._fallback, PlatformCapability capability)
+    : _state = _fallback.currentState.copyWith(
+        capability: capability,
+        previewMode: false,
+      );
 
   static const MethodChannel _channel = MethodChannel(
     'com.yttydcs.myflowhub.clipboardnode/engine',
   );
+
+  static PlatformCapability capabilityForPlatform({
+    required bool isAndroid,
+    required bool isIOS,
+  }) {
+    if (isAndroid) {
+      return const PlatformCapability(
+        platformLabel: 'Android',
+        automaticWatch: true,
+        manualSend: true,
+        autoApply: true,
+        shareSheet: true,
+        notes: ['Android 支持前台自动监听', '自动应用由本机策略控制'],
+      );
+    }
+    if (isIOS) {
+      return const PlatformCapability(
+        platformLabel: 'iOS',
+        automaticWatch: false,
+        manualSend: true,
+        autoApply: false,
+        shareSheet: true,
+        notes: ['iOS 当前优先使用手动发送与系统分享入口', '前台接收后由用户确认应用'],
+      );
+    }
+    return const PlatformCapability(
+      platformLabel: 'Mobile',
+      automaticWatch: false,
+      manualSend: true,
+      autoApply: false,
+      shareSheet: true,
+      notes: ['移动端优先使用手动发送与系统分享入口', '前台接收后由用户确认应用'],
+    );
+  }
+
+  static PlatformCapability _capability() {
+    return capabilityForPlatform(
+      isAndroid: Platform.isAndroid,
+      isIOS: Platform.isIOS,
+    );
+  }
 
   final PreviewEngineBridge _fallback;
   final StreamController<ClipboardEngineState> _states =

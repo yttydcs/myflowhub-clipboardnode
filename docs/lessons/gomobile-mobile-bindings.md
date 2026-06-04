@@ -10,6 +10,9 @@ Android and iOS live mobile ClipboardNode support depends on generated gomobile 
 - `myflowhub.aar`
 - `Nodemobile.xcframework`
 - `com.myflowhub.gomobile.nodemobile.Nodemobile`
+- `javap -classpath classes.jar com.myflowhub.gomobile.nodemobile.Nodemobile`
+- `takeLastAppliedText`
+- `NoSuchMethodException`
 - `minSdk 26`
 - `canImport(Nodemobile)`
 - `iOS gomobile binding requires macOS and Xcode`
@@ -17,6 +20,7 @@ Android and iOS live mobile ClipboardNode support depends on generated gomobile 
 ## Symptoms
 
 - Android APK builds but native channel reports a stub or cannot resolve `Nodemobile`.
+- Android APK packages the AAR but the Kotlin reflection bridge fails at runtime with `NoSuchMethodException` for gomobile exports.
 - Android merge/build fails because the AAR minSdk is higher than the app minSdk.
 - iOS builds in stub mode and reports that `Nodemobile.xcframework` is required.
 - CI claims mobile success from Flutter-only builds even though no generated binding artifact was produced.
@@ -32,6 +36,7 @@ Android and iOS live mobile ClipboardNode support depends on generated gomobile 
 - gomobile version is not pinned and generated package/module output drifts.
 - AAR is not generated before `flutter build apk`.
 - Kotlin resolver class names do not match generated Java package layout.
+- Kotlin reflection method names do not match gomobile's generated Java names; exported Go functions are exposed as lowerCamel methods such as `start`, `applyEvent`, and `takeLastAppliedText`.
 - App `minSdk` is lower than the generated AAR requirement.
 - iOS XCFramework is absent or generated with unexpected module/symbol names.
 
@@ -44,9 +49,10 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 1. Pin `golang.org/x/mobile/cmd/gomobile` in build scripts.
 2. Build Android AAR into `app/android/app/libs/myflowhub.aar`.
 3. Inspect the AAR with `jar tf` and confirm `com/myflowhub/gomobile/nodemobile/Nodemobile.class`.
-4. Align Android `minSdk` to the AAR requirement.
-5. Build the APK with the generated AAR present.
-6. For iOS, generate `app/ios/Frameworks/Nodemobile.xcframework` on macOS and validate Swift import/symbol names through CI.
+4. Extract `classes.jar` and run `javap -classpath classes.jar com.myflowhub.gomobile.nodemobile.Nodemobile` to confirm exported method names. Kotlin reflection should use lowerCamel names from `javap`, not Go/PascalCase names.
+5. Align Android `minSdk` to the AAR requirement.
+6. Build the APK with the generated AAR present.
+7. For iOS, generate `app/ios/Frameworks/Nodemobile.xcframework` on macOS and validate Swift import/symbol names through CI.
 
 ## Resolution
 
@@ -61,6 +67,7 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 - Do not treat a stub mobile build as live mobile completion.
 - Pin gomobile versions in scripts and CI.
 - Verify generated Android class names after AAR build.
+- Verify generated Java method names with `javap` before wiring Kotlin reflection.
 - Keep Android app minSdk compatible with the generated AAR.
 - Record iOS live proof only from macOS/Xcode build evidence.
 
@@ -69,3 +76,4 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 - [../requirements/clipboard-sync.md](../requirements/clipboard-sync.md)
 - [../specs/clipboard-sync.md](../specs/clipboard-sync.md)
 - [../change/2026-06-02_clipboard-full-platform-sync.md](../change/2026-06-02_clipboard-full-platform-sync.md)
+- [../change/2026-06-04_android-clipboard-topic-settings.md](../change/2026-06-04_android-clipboard-topic-settings.md)

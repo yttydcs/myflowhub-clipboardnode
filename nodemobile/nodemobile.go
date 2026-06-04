@@ -21,8 +21,9 @@ var (
 )
 
 type manualClipboard struct {
-	mu   sync.Mutex
-	text string
+	mu          sync.Mutex
+	text        string
+	lastApplied string
 }
 
 func (m *manualClipboard) ReadText(context.Context) (string, error) {
@@ -37,8 +38,23 @@ func (m *manualClipboard) ReadText(context.Context) (string, error) {
 func (m *manualClipboard) WriteText(_ context.Context, text string) error {
 	m.mu.Lock()
 	m.text = text
+	m.lastApplied = text
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *manualClipboard) SetLocalText(text string) {
+	m.mu.Lock()
+	m.text = text
+	m.mu.Unlock()
+}
+
+func (m *manualClipboard) TakeLastAppliedText() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	text := m.lastApplied
+	m.lastApplied = ""
+	return text
 }
 
 func (m *manualClipboard) WatchText(context.Context) (<-chan clipboard.TextEvent, error) {
@@ -138,8 +154,7 @@ func SendText(text string) (string, error) {
 		setLastError(err)
 		return "", err
 	}
-	raw, _ := json.Marshal(decision)
-	return string(raw), nil
+	return marshalDecision(decision), nil
 }
 
 func SetClipboardText(text string) string {
@@ -152,8 +167,18 @@ func SetClipboardText(text string) string {
 		clip = manual
 		mu.Unlock()
 	}
-	_ = manual.WriteText(context.Background(), text)
+	manual.SetLocalText(text)
 	return Status()
+}
+
+func TakeLastAppliedText() string {
+	mu.Lock()
+	manual := clip
+	mu.Unlock()
+	if manual == nil {
+		return ""
+	}
+	return manual.TakeLastAppliedText()
 }
 
 func ReadClipboard() (string, error) {
@@ -170,8 +195,7 @@ func ReadClipboard() (string, error) {
 		setLastError(err)
 		return "", err
 	}
-	raw, _ := json.Marshal(decision)
-	return string(raw), nil
+	return marshalDecision(decision), nil
 }
 
 func ApplyEvent(eventID string) (string, error) {
@@ -188,8 +212,7 @@ func ApplyEvent(eventID string) (string, error) {
 		setLastError(err)
 		return "", err
 	}
-	raw, _ := json.Marshal(decision)
-	return string(raw), nil
+	return marshalDecision(decision), nil
 }
 
 func Status() string {
@@ -231,4 +254,27 @@ func setLastError(err error) {
 		return
 	}
 	lastErr = err.Error()
+}
+
+func marshalDecision(decision coreruntime.Decision) string {
+	out := struct {
+		Action     coreruntime.Action
+		EventID    string
+		Topic      string
+		Size       int
+		HashPrefix string
+		Text       string `json:",omitempty"`
+	}{
+		Action:     decision.Action,
+		EventID:    decision.EventID,
+		Topic:      decision.Topic,
+		Size:       decision.Size,
+		HashPrefix: decision.HashPrefix,
+	}
+	if decision.Action == coreruntime.ActionLocalPublished ||
+		decision.Action == coreruntime.ActionRemoteApplied {
+		out.Text = decision.Text
+	}
+	raw, _ := json.Marshal(out)
+	return string(raw)
 }

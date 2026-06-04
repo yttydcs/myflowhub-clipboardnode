@@ -676,7 +676,23 @@ class _SettingsSectionState extends State<_SettingsSection> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: _saveSettings,
+                  icon: const Icon(Icons.save_outlined, size: 18),
+                  label: const Text('保存设置'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        _Panel(
+          title: 'Topic 订阅',
+          icon: Icons.topic_outlined,
+          child: Column(
+            children: [
               _TopicRoutesEditor(
                 routes: _topics,
                 onChanged: () => setState(() {}),
@@ -689,7 +705,7 @@ class _SettingsSectionState extends State<_SettingsSection> {
                 child: FilledButton.icon(
                   onPressed: _saveSettings,
                   icon: const Icon(Icons.save_outlined, size: 18),
-                  label: const Text('保存设置'),
+                  label: const Text('保存 Topic'),
                 ),
               ),
             ],
@@ -1022,7 +1038,7 @@ class _TopicRoutesEditor extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Topic 订阅',
+                '订阅路由',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),

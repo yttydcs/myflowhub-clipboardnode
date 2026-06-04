@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:myflowhub_clipboard/main.dart';
 import 'package:myflowhub_clipboard/app/theme/app_theme.dart';
 import 'package:myflowhub_clipboard/core/bridge/engine_contract.dart';
+import 'package:myflowhub_clipboard/core/bridge/mobile_engine_bridge.dart';
 import 'package:myflowhub_clipboard/core/bridge/preview_engine_bridge.dart';
 
 ClipboardNodeApp previewApp() {
@@ -73,6 +74,28 @@ void main() {
     ]);
     expect(bridge.currentState.settings.topics.last.syncToLocal, isFalse);
     expect(bridge.currentState.settings.topics.last.syncFromLocal, isTrue);
+  });
+
+  test('mobile capability enables Android foreground policies only', () {
+    final android = MobileEngineBridge.capabilityForPlatform(
+      isAndroid: true,
+      isIOS: false,
+    );
+    expect(android.platformLabel, 'Android');
+    expect(android.automaticWatch, isTrue);
+    expect(android.autoApply, isTrue);
+    expect(android.manualSend, isTrue);
+    expect(android.shareSheet, isTrue);
+
+    final ios = MobileEngineBridge.capabilityForPlatform(
+      isAndroid: false,
+      isIOS: true,
+    );
+    expect(ios.platformLabel, 'iOS');
+    expect(ios.automaticWatch, isFalse);
+    expect(ios.autoApply, isFalse);
+    expect(ios.manualSend, isTrue);
+    expect(ios.shareSheet, isTrue);
   });
 
   test('body history ignores pending activity text', () {
@@ -248,6 +271,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.tune_outlined).first);
     await tester.pumpAndSettle();
     expect(find.text('Topic 订阅'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '保存 Topic'), findsOneWidget);
     expect(find.text('到本机'), findsOneWidget);
     expect(find.text('从本机'), findsOneWidget);
     expect(find.text('保存正文历史'), findsOneWidget);
