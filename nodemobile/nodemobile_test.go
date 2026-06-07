@@ -29,6 +29,11 @@ func TestManualClipboardTracksOnlyRemoteAppliedText(t *testing.T) {
 	if got, err := manual.ReadText(context.Background()); err != nil || got != "remote text" {
 		t.Fatalf("read text = %q, %v", got, err)
 	}
+
+	manual.SetAppliedText("decision text")
+	if got := manual.TakeLastAppliedText(); got != "decision text" {
+		t.Fatalf("decision applied text = %q", got)
+	}
 }
 
 func TestMarshalDecisionOnlyIncludesBodyForLocalAndApplied(t *testing.T) {
@@ -54,6 +59,33 @@ func TestMarshalDecisionOnlyIncludesBodyForLocalAndApplied(t *testing.T) {
 	}))
 	if _, ok := pending["Text"]; ok {
 		t.Fatalf("pending decision leaked text: %#v", pending)
+	}
+}
+
+func TestTakeRemoteAppliedTextDrainsLatestAppliedDecision(t *testing.T) {
+	decisions := make(chan coreruntime.Decision, 4)
+	decisions <- coreruntime.Decision{
+		Action: coreruntime.ActionLocalPublished,
+		Text:   "local body",
+	}
+	decisions <- coreruntime.Decision{
+		Action: coreruntime.ActionRemoteApplied,
+		Text:   "remote one",
+	}
+	decisions <- coreruntime.Decision{
+		Action: coreruntime.ActionRemotePending,
+		Text:   "pending body",
+	}
+	decisions <- coreruntime.Decision{
+		Action: coreruntime.ActionRemoteApplied,
+		Text:   "remote two",
+	}
+
+	if got := takeRemoteAppliedTextFromDecisions(decisions); got != "remote two" {
+		t.Fatalf("remote applied text = %q", got)
+	}
+	if got := takeRemoteAppliedTextFromDecisions(decisions); got != "" {
+		t.Fatalf("decisions were not drained, got %q", got)
 	}
 }
 

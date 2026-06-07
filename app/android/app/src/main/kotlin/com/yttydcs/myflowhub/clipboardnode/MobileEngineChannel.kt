@@ -11,6 +11,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
+import java.lang.reflect.InvocationTargetException
 
 class MobileEngineChannel(
     flutterEngine: FlutterEngine,
@@ -96,7 +97,8 @@ class MobileEngineChannel(
                 else -> result.notImplemented()
             }
         } catch (t: Throwable) {
-            result.error("clipboardnode_engine", t.message ?: t.toString(), null)
+            val error = t.unwrapInvocationTarget()
+            result.error("clipboardnode_engine", error.message ?: error.toString(), null)
         }
     }
 
@@ -198,7 +200,7 @@ class MobileEngineChannel(
         val text = try {
             bridge.takeLastAppliedText()
         } catch (t: Throwable) {
-            Log.w(TAG, "applied text polling failed", t)
+            Log.w(TAG, "applied text polling failed", t.unwrapInvocationTarget())
             stopAppliedTextPolling()
             return
         }
@@ -329,7 +331,11 @@ class GoNodeBridge : NodeBridge {
 
     private fun invoke(name: String, parameterTypes: Array<Class<*>>, vararg args: Any): String {
         val method = cls.getMethod(name, *parameterTypes)
-        return method.invoke(null, *args) as? String ?: ""
+        return try {
+            method.invoke(null, *args) as? String ?: ""
+        } catch (e: InvocationTargetException) {
+            throw e.targetException ?: e
+        }
     }
 
     private fun resolveClass(): Class<*> {
@@ -348,5 +354,13 @@ class GoNodeBridge : NodeBridge {
             }
         }
         throw last ?: ClassNotFoundException("nodemobile binding not found")
+    }
+}
+
+private fun Throwable.unwrapInvocationTarget(): Throwable {
+    return if (this is InvocationTargetException) {
+        targetException ?: this
+    } else {
+        this
     }
 }

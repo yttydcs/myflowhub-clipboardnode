@@ -13,6 +13,10 @@ Android and iOS live mobile ClipboardNode support depends on generated gomobile 
 - `javap -classpath classes.jar com.myflowhub.gomobile.nodemobile.Nodemobile`
 - `takeLastAppliedText`
 - `NoSuchMethodException`
+- `InvocationTargetException`
+- Android auto apply remote text
+- `remote_applied`
+- GitHub Android debug APK
 - `minSdk 26`
 - `canImport(Nodemobile)`
 - `iOS gomobile binding requires macOS and Xcode`
@@ -21,6 +25,8 @@ Android and iOS live mobile ClipboardNode support depends on generated gomobile 
 
 - Android APK builds but native channel reports a stub or cannot resolve `Nodemobile`.
 - Android APK packages the AAR but the Kotlin reflection bridge fails at runtime with `NoSuchMethodException` for gomobile exports.
+- GitHub-built Android APK connects and subscribes, but remote auto-apply does not update the Android system clipboard.
+- Android UI reports only `InvocationTargetException`, hiding the underlying gomobile or connection cause.
 - Android merge/build fails because the AAR minSdk is higher than the app minSdk.
 - iOS builds in stub mode and reports that `Nodemobile.xcframework` is required.
 - CI claims mobile success from Flutter-only builds even though no generated binding artifact was produced.
@@ -37,6 +43,8 @@ Android and iOS live mobile ClipboardNode support depends on generated gomobile 
 - AAR is not generated before `flutter build apk`.
 - Kotlin resolver class names do not match generated Java package layout.
 - Kotlin reflection method names do not match gomobile's generated Java names; exported Go functions are exposed as lowerCamel methods such as `start`, `applyEvent`, and `takeLastAppliedText`.
+- Android remote auto-apply depends on a mobile-only text handoff: Go runtime accepts the remote event, writes through the gomobile manual clipboard, and Kotlin later polls `takeLastAppliedText` to write Android's system clipboard.
+- Kotlin reflection can wrap real gomobile failures in `InvocationTargetException`; UI and logs need the unwrapped target exception to diagnose stale/mismatched AARs or runtime failures.
 - App `minSdk` is lower than the generated AAR requirement.
 - iOS XCFramework is absent or generated with unexpected module/symbol names.
 
@@ -53,6 +61,7 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 5. Align Android `minSdk` to the AAR requirement.
 6. Build the APK with the generated AAR present.
 7. For iOS, generate `app/ios/Frameworks/Nodemobile.xcframework` on macOS and validate Swift import/symbol names through CI.
+8. If GitHub-built Android APK does not auto-apply remote text, check whether `takeLastAppliedText` is present, whether Android route `sync_to_local` and `auto_apply` are enabled, and whether Kotlin logs show an unwrapped gomobile cause rather than a bare `InvocationTargetException`.
 
 ## Resolution
 
@@ -61,6 +70,8 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 - Keep generated AAR/XCFramework ignored.
 - Make CI build gomobile artifacts before mobile app builds.
 - Add explicit Android/iOS stub fallback messaging when bindings are absent.
+- Keep Android remote-applied text handoff mobile-local and body-safe: do not put clipboard bodies into status/config/logs.
+- Unwrap Kotlin `InvocationTargetException` before surfacing MethodChannel errors.
 
 ## Prevention / Guardrails
 
@@ -68,6 +79,8 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 - Pin gomobile versions in scripts and CI.
 - Verify generated Android class names after AAR build.
 - Verify generated Java method names with `javap` before wiring Kotlin reflection.
+- When Android auto-apply fails on a GitHub APK, first verify the `debug-latest` run actually corresponds to the pushed commit and that the Android job uploaded a fresh `myflowhub.aar`.
+- Preserve a focused test for the mobile applied-text handoff because this is not exercised by desktop bridge tests.
 - Keep Android app minSdk compatible with the generated AAR.
 - Record iOS live proof only from macOS/Xcode build evidence.
 
@@ -77,3 +90,4 @@ gomobile output is generated platform binding code, not a stable checked-in API 
 - [../specs/clipboard-sync.md](../specs/clipboard-sync.md)
 - [../change/2026-06-02_clipboard-full-platform-sync.md](../change/2026-06-02_clipboard-full-platform-sync.md)
 - [../change/2026-06-04_android-clipboard-topic-settings.md](../change/2026-06-04_android-clipboard-topic-settings.md)
+- [../change/2026-06-07_android-auto-apply-remote.md](../change/2026-06-07_android-auto-apply-remote.md)

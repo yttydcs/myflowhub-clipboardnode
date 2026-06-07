@@ -49,6 +49,13 @@ func (m *manualClipboard) SetLocalText(text string) {
 	m.mu.Unlock()
 }
 
+func (m *manualClipboard) SetAppliedText(text string) {
+	m.mu.Lock()
+	m.text = text
+	m.lastApplied = text
+	m.mu.Unlock()
+}
+
 func (m *manualClipboard) TakeLastAppliedText() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -174,11 +181,38 @@ func SetClipboardText(text string) string {
 func TakeLastAppliedText() string {
 	mu.Lock()
 	manual := clip
+	eng := current
 	mu.Unlock()
-	if manual == nil {
+	if manual != nil {
+		if text := manual.TakeLastAppliedText(); text != "" {
+			return text
+		}
+	}
+	return takeRemoteAppliedText(eng)
+}
+
+func takeRemoteAppliedText(eng *engine.Engine) string {
+	if eng == nil {
 		return ""
 	}
-	return manual.TakeLastAppliedText()
+	return takeRemoteAppliedTextFromDecisions(eng.Decisions())
+}
+
+func takeRemoteAppliedTextFromDecisions(decisions <-chan coreruntime.Decision) string {
+	var latest string
+	for {
+		select {
+		case decision, ok := <-decisions:
+			if !ok {
+				return latest
+			}
+			if decision.Action == coreruntime.ActionRemoteApplied && decision.Text != "" {
+				latest = decision.Text
+			}
+		default:
+			return latest
+		}
+	}
 }
 
 func ReadClipboard() (string, error) {
